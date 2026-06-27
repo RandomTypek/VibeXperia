@@ -1,0 +1,2 @@
+allow cameraserver sysfs:dir { read open };
+allow cameraserver sysfs:file r_file_perms;

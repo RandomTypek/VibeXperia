@@ -1,0 +1,178 @@
+diff --git a/adb/daemon/main.cpp b/adb/daemon/main.cpp
+index c510535a5..cd1be859a 100644
+--- a/adb/daemon/main.cpp
++++ b/adb/daemon/main.cpp
+@@ -177,8 +177,9 @@ int adbd_main(int server_port) {
+     drop_privileges(server_port);
+ 
+     bool is_usb = false;
+-    if (access(USB_FFS_ADB_EP0, F_OK) == 0) {
+-        // Listen on USB.
++    if (access(USB_FFS_ADB_EP0, F_OK) == 0 || access("/dev/android_adb", F_OK) == 0) {
++        // Listen on USB (functionfs if present, else the legacy in-kernel
++        // /dev/android_adb gadget used by older 3.x kernels like nicki's).
+         usb_init();
+         is_usb = true;
+     }
+diff --git a/adb/daemon/usb.cpp b/adb/daemon/usb.cpp
+index 0f92282c4..f56e07782 100644
+--- a/adb/daemon/usb.cpp
++++ b/adb/daemon/usb.cpp
+@@ -459,10 +459,142 @@ static void usb_ffs_init() {
+     std::thread(usb_ffs_open_thread, h).detach();
+ }
+ 
++// Legacy in-kernel adb gadget (/dev/android_adb) support.
++//
++// Oreo's adbd is functionfs-only, but some older 3.x kernels (e.g. the
++// Sony msm8x27 used by nicki) ship an android composite gadget whose only
++// adb function is the in-kernel f_adb driver exposing /dev/android_adb.
++// This path lets adbd drive that gadget, mirroring the dual-transport
++// behaviour LineageOS 14.1 still had in usb_linux_client.cpp.
++
++#define USB_ADB_PATH "/dev/android_adb"
++
++static void usb_adb_open_thread(void* x) {
++    struct usb_handle* usb = (struct usb_handle*)x;
++
++    adb_thread_setname("usb adb open");
++
++    while (true) {
++        // wait until the USB device needs opening
++        std::unique_lock<std::mutex> lock(usb->lock);
++        while (!usb->open_new_connection) {
++            usb->notify.wait(lock);
++        }
++        usb->open_new_connection = false;
++        lock.unlock();
++
++        D("[ usb_thread - opening device ]");
++        int fd;
++        do {
++            fd = adb_open(USB_ADB_PATH, O_RDWR);
++            if (fd < 0) {
++                std::this_thread::sleep_for(1s);
++            }
++        } while (fd < 0);
++        D("[ opening device succeeded ]");
++
++        close_on_exec(fd);
++        usb->fd = fd;
++
++        LOG(INFO) << "registering usb transport (legacy /dev/android_adb)";
++        register_usb_transport(usb, 0, 0, 1);
++    }
++
++    // never gets here
++    abort();
++}
++
++static int usb_adb_write(usb_handle* h, const void* data, int len) {
++    D("about to write (fd=%d, len=%d)", h->fd, len);
++    int n = adb_write(h->fd, data, len);
++    if (n != len) {
++        D("ERROR: fd = %d, n = %d: %s", h->fd, n, strerror(errno));
++        return -1;
++    }
++    if (h->kicked) {
++        D("usb_adb_write finished due to kicked");
++        return -1;
++    }
++    D("[ done fd=%d ]", h->fd);
++    return 0;
++}
++
++static int usb_adb_read(usb_handle* h, void* data, int len) {
++    D("about to read (fd=%d, len=%d)", h->fd, len);
++    char* buf = static_cast<char*>(data);
++    while (len > 0) {
++        // The kernel implementation of adb_read in f_adb.c doesn't support
++        // reads larger than 4096 bytes. Read in 4096 byte chunks to avoid
++        // the issue. (The ffs implementation doesn't have this limit.)
++        int bytes_to_read = len < 4096 ? len : 4096;
++        int n = adb_read(h->fd, buf, bytes_to_read);
++        if (n != bytes_to_read) {
++            D("ERROR: fd = %d, n = %d: %s", h->fd, n, strerror(errno));
++            return -1;
++        }
++        if (h->kicked) {
++            D("usb_adb_read finished due to kicked");
++            return -1;
++        }
++        len -= n;
++        buf += n;
++    }
++    D("[ done fd=%d ]", h->fd);
++    return 0;
++}
++
++static void usb_adb_kick(usb_handle* h) {
++    D("usb_adb_kick");
++    // Other threads may be in usb_adb_read/usb_adb_write. Don't close the fd
++    // here (it would be reused); set the kicked flag and point it at a dummy
++    // file. usb_adb_close() does the real close once those threads finish.
++    h->kicked = true;
++    TEMP_FAILURE_RETRY(dup2(dummy_fd, h->fd));
++}
++
++static void usb_adb_close(usb_handle* h) {
++    LOG(INFO) << "closing legacy /dev/android_adb transport";
++    h->kicked = false;
++    adb_close(h->fd);
++    // Notify usb_adb_open_thread to open a new connection.
++    h->lock.lock();
++    h->open_new_connection = true;
++    h->lock.unlock();
++    h->notify.notify_one();
++}
++
++static void usb_adb_init() {
++    D("[ usb_init - using legacy /dev/android_adb ]");
++
++    usb_handle* h = new usb_handle();
++
++    h->write = usb_adb_write;
++    h->read = usb_adb_read;
++    h->kick = usb_adb_kick;
++    h->close = usb_adb_close;
++
++    // Open /dev/android_adb_enable to trigger the enabling of the adb USB
++    // function in the kernel. Leave it open indefinitely so the kernel knows
++    // when adbd is running and when it is not.
++    int fd = adb_open("/dev/android_adb_enable", O_RDWR);
++    if (fd < 0) {
++        D("failed to open /dev/android_adb_enable");
++    } else {
++        close_on_exec(fd);
++    }
++
++    D("[ usb_init - starting thread ]");
++    std::thread(usb_adb_open_thread, h).detach();
++}
++
+ void usb_init() {
+     dummy_fd = adb_open("/dev/null", O_WRONLY);
+     CHECK_NE(dummy_fd, -1);
+-    usb_ffs_init();
++    if (access(USB_FFS_ADB_EP0, F_OK) == 0) {
++        usb_ffs_init();
++    } else {
++        usb_adb_init();
++    }
+ }
+ 
+ int usb_write(usb_handle* h, const void* data, int len) {
+diff --git a/adb/daemon/usb.h b/adb/daemon/usb.h
+index 55b59952f..10ff3f239 100644
+--- a/adb/daemon/usb.h
++++ b/adb/daemon/usb.h
+@@ -34,6 +34,9 @@ struct usb_handle {
+     void (*kick)(usb_handle* h);
+     void (*close)(usb_handle* h);
+ 
++    // Legacy f_adb (/dev/android_adb)
++    int fd = -1;
++
+     // FunctionFS
+     int control = -1;
+     int bulk_out = -1; /* "out" from the host's perspective => source for adbd */

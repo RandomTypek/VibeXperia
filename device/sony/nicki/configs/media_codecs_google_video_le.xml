@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- Copyright (C) 2015 The Android Open Source Project
+
+     Licensed under the Apache License, Version 2.0 (the "License");
+     you may not use this file except in compliance with the License.
+     You may obtain a copy of the License at
+
+          http://www.apache.org/licenses/LICENSE-2.0
+
+     Unless required by applicable law or agreed to in writing, software
+     distributed under the License is distributed on an "AS IS" BASIS,
+     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+     See the License for the specific language governing permissions and
+     limitations under the License.
+-->
+
+<!-- nicki: the MSM8227/Adreno-305 video core has HW decode only for H.264 /
+     MPEG / VC1 / DivX (OMX.qcom.video.decoder.*). VP8, VP9 and HEVC have NO HW
+     decoder here. The stock google_video_le list advertised software
+     OMX.google.{vp8,vp9,hevc}.decoder, so web players (YouTube etc.) served VP9
+     and the browser software-decoded it on the dual Cortex-A5 -> ~1.5 cores
+     pinned, slideshow video. Dropping those SW-only decoders makes those players
+     fall back to H.264, which the Qualcomm HW decoder handles smoothly. (SW
+     H.264/MPEG4/H263 decoders are kept as harmless fallbacks; HW H.264 wins.) -->
+<Included>
+    <Decoders>
+        <MediaCodec name="OMX.google.mpeg4.decoder" type="video/mp4v-es">
+            <!-- profiles and levels:  ProfileSimple : Level3 -->
+            <Limit name="size" min="2x2" max="352x288" />
+            <Limit name="alignment" value="2x2" />
+            <Limit name="block-size" value="16x16" />
+            <Limit name="blocks-per-second" range="12-11880" />
+            <Limit name="bitrate" range="1-384000" />
+            <Feature name="adaptive-playback" />
+        </MediaCodec>
+        <MediaCodec name="OMX.google.h263.decoder" type="video/3gpp">
+            <!-- profiles and levels:  ProfileBaseline : Level30, ProfileBaseline : Level45
+                    ProfileISWV2 : Level30, ProfileISWV2 : Level45 -->
+            <Limit name="size" min="2x2" max="352x288" />
+            <Limit name="alignment" value="2x2" />
+            <Limit name="bitrate" range="1-384000" />
+            <Feature name="adaptive-playback" />
+        </MediaCodec>
+        <MediaCodec name="OMX.google.h264.decoder" type="video/avc">
+            <!-- profiles and levels:  ProfileHigh : Level51 -->
+            <Limit name="size" min="2x2" max="2048x2048" />
+            <Limit name="alignment" value="2x2" />
+            <Limit name="block-size" value="16x16" />
+            <Limit name="block-count" range="1-16384" />
+            <Limit name="blocks-per-second" range="1-491520" />
+            <Limit name="bitrate" range="1-40000000" />
+            <Feature name="adaptive-playback" />
+        </MediaCodec>
+    </Decoders>
+
+    <Encoders>
+        <MediaCodec name="OMX.google.h263.encoder" type="video/3gpp">
+            <!-- profiles and levels:  ProfileBaseline : Level45 -->
+            <Limit name="size" min="176x144" max="176x144" />
+            <Limit name="alignment" value="16x16" />
+            <Limit name="bitrate" range="1-128000" />
+        </MediaCodec>
+        <MediaCodec name="OMX.google.h264.encoder" type="video/avc">
+            <!-- profiles and levels:  ProfileBaseline : Level3 -->
+            <Limit name="size" min="16x16" max="1808x1808" />
+            <Limit name="alignment" value="2x2" />
+            <Limit name="block-size" value="16x16" />
+            <Limit name="block-count" range="1-1620" />
+            <Limit name="blocks-per-second" range="1-40500" />
+            <Limit name="bitrate" range="1-2000000" />
+            <Feature name="intra-refresh" />
+        </MediaCodec>
+        <MediaCodec name="OMX.google.mpeg4.encoder" type="video/mp4v-es">
+            <!-- profiles and levels:  ProfileCore : Level2 -->
+            <Limit name="size" min="16x16" max="176x144" />
+            <Limit name="alignment" value="16x16" />
+            <Limit name="block-size" value="16x16" />
+            <Limit name="blocks-per-second" range="12-1485" />
+            <Limit name="bitrate" range="1-64000" />
+        </MediaCodec>
+        <MediaCodec name="OMX.google.vp8.encoder" type="video/x-vnd.on2.vp8">
+            <!-- profiles and levels:  ProfileMain : Level_Version0-3 -->
+            <Limit name="size" min="2x2" max="1280x1280" />
+            <Limit name="alignment" value="2x2" />
+            <Limit name="block-size" value="16x16" />
+            <Limit name="block-count" range="1-3600" /> <!-- max 1280x720 -->
+            <Limit name="bitrate" range="1-20000000" />
+            <Feature name="bitrate-modes" value="VBR,CBR" />
+        </MediaCodec>
+    </Encoders>
+</Included>

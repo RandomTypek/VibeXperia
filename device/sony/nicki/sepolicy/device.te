@@ -1,0 +1,8 @@
+# /dev/block partitions
+
+# qmuxd_socket is declared by device/qcom/sepolicy/common/file.te (as file_type);
+# don't redeclare it here as dev_type (duplicate/conflicting declaration).
+type modem_device, dev_type;
+type dbgcfgtool_device, dev_type;
+type bootloader_block_device, dev_type;
+type ltalabel_block_device, dev_type;

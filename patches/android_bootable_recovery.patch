@@ -1,0 +1,27 @@
+diff --git a/roots.cpp b/roots.cpp
+index 56e724fe..507d9cc7 100644
+--- a/roots.cpp
++++ b/roots.cpp
+@@ -339,11 +339,18 @@ int format_volume(const char* volume, const char* directory) {
+             LOG(INFO) << "wiping " << v->key_loc;
+             int fd = open(v->key_loc, O_WRONLY | O_CREAT, 0644);
+             if (fd < 0) {
+-                LOG(ERROR) << "format_volume: failed to open " << v->key_loc;
+-                return -1;
++                // nicki: the crypto key_loc (/persist/footer) lives on the
++                // /persist partition, which is mounted by init in the booted
++                // system but is NOT in this fstab, so it isn't available in
++                // recovery. A missing/unreachable key_loc must NOT abort the
++                // whole format - otherwise "wipe data" silently leaves /data
++                // untouched. Skip the key wipe and proceed to format.
++                PLOG(WARNING) << "format_volume: can't open key_loc " << v->key_loc
++                              << "; skipping key wipe";
++            } else {
++                wipe_block_device(fd, get_file_size(fd));
++                close(fd);
+             }
+-            wipe_block_device(fd, get_file_size(fd));
+-            close(fd);
+         }
+ 
+         int64_t length = 0;

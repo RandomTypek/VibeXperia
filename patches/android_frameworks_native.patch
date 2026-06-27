@@ -1,0 +1,20 @@
+diff --git a/services/sensorservice/SensorDevice.cpp b/services/sensorservice/SensorDevice.cpp
+index 7d9b0b730..905b15f69 100644
+--- a/services/sensorservice/SensorDevice.cpp
++++ b/services/sensorservice/SensorDevice.cpp
+@@ -663,8 +663,13 @@ void SensorDevice::convertToSensorEvents(
+ }
+ 
+ void SensorDevice::handleHidlDeath(const std::string & detail) {
+-    // restart is the only option at present.
+-    LOG_ALWAYS_FATAL("Abort due to ISensors hidl service failure, detail: %s.", detail.c_str());
++    // nicki: the legacy 2012 Bosch (bsthal) sensors HAL is ABI-incompatible
++    // with Oreo and crashes during HIDL calls. Upstream LOG_ALWAYS_FATAL here
++    // takes system_server down with it (boot loop). Don't abort — log and
++    // carry on with no working sensors so the device boots. (SensorDevice
++    // already tolerates a non-functional HAL: every method early-returns.)
++    ALOGE("ISensors HIDL service failure (continuing without sensors): %s.",
++          detail.c_str());
+ }
+ 
+ // ---------------------------------------------------------------------------

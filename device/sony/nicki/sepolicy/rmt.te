@@ -1,0 +1,19 @@
+type rmt, domain;
+type rmt_exec, exec_type, file_type;
+
+init_daemon_domain(rmt)
+
+wakelock_use(rmt)
+
+#============= rmt ==============
+allow rmt block_device:dir r_dir_perms;
+allow rmt modem_block_device:blk_file rw_file_perms;
+allow rmt root_block_device:blk_file r_file_perms;
+allow rmt self:capability { setgid setuid };
+allow rmt self:socket create_socket_perms;
+# 8.1 neverallowxperm (domain.te) requires socket ioctls to be whitelisted.
+allowxperm rmt self:socket ioctl msm_sock_ipc_ioctls;
+# shared_log_device (Nougat-era diag/QXDM shared-log node) no longer exists in
+# the 8.1 policy; drop the stale grant rather than reference an undefined type.
+allow rmt uio_device:chr_file rw_file_perms;
+r_dir_file(rmt, sysfs_rmtfs)

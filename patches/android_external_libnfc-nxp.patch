@@ -1,0 +1,17 @@
+diff --git a/src/phHal4Nfc.c b/src/phHal4Nfc.c
+index df72bd8..3a107af 100644
+--- a/src/phHal4Nfc.c
++++ b/src/phHal4Nfc.c
+@@ -306,7 +306,11 @@ phHal4Nfc_Configure_Layers(
+ #include <utils/Log.h>
+ #include <dlfcn.h>
+ 
+-#define FW_PATH "/vendor/firmware/libpn544_fw.so"
++/* nicki: was /vendor/firmware/libpn544_fw.so, but Oreo's app linker namespace
++ * for com.android.nfc (where libnfc dlopens this) permits /system/vendor/lib but
++ * NOT /system/vendor/firmware -> "Could not open ... libpn544_fw.so" and the FW
++ * update is skipped. /vendor/lib (== /system/vendor/lib, non-Treble) IS permitted. */
++#define FW_PATH "/vendor/lib/libpn544_fw.so"
+ 
+ const unsigned char *nxp_nfc_full_version = NULL;
+ const unsigned char *nxp_nfc_fw = NULL;

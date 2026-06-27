@@ -1,0 +1,15 @@
+type ta_qmi_service, domain;
+type ta_qmi_service_exec, exec_type, file_type;
+
+init_daemon_domain(ta_qmi_service)
+
+wakelock_use(ta_qmi_service)
+
+allow ta_qmi_service sysfs_wake_lock:file { append open };
+allow ta_qmi_service self:socket { create bind read write setopt };
+allow ta_qmi_service self:socket ioctl;
+# 8.1 neverallowxperm (domain.te) requires socket ioctls to be whitelisted.
+allowxperm ta_qmi_service self:socket ioctl msm_sock_ipc_ioctls;
+allow ta_qmi_service self:capability { dac_override };
+
+

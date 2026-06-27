@@ -1,0 +1,4 @@
+qmux_socket(rild)
+
+#============= rild ==============
+allow rild self:socket ioctl;

@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     Copyright (C) 2026 The LineageOS Project
+
+     Licensed under the Apache License, Version 2.0 (the "License");
+     you may not use this file except in compliance with the License.
+     You may obtain a copy of the License at
+
+          http://www.apache.org/licenses/LICENSE-2.0
+
+     Unless required by applicable law or agreed to in writing, software
+     distributed under the License is distributed on an "AS IS" BASIS,
+     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+     See the License for the specific language governing permissions and
+     limitations under the License.
+-->
+<resources>
+    <!--
+         nicki: declare the RGB notification/battery LED to the LineageOS platform
+         (org.lineageos.platform / LightsCapabilities). The lineage-sdk default is 8
+         (LIGHTS_PULSATING_LED only), so without this the framework believes there
+         is no notification or battery LED and never drives it, even though the HAL
+         and the fih_led kernel driver work. The previous override lived under
+         overlay/vendor/cmsdk/cm/res, a dead CM-era path that targets nothing.
+
+         1  = LIGHTS_RGB_NOTIFICATION_LED  (notification light is color adjustable)
+         2  = LIGHTS_RGB_BATTERY_LED       (battery light is color adjustable)
+         8  = LIGHTS_PULSATING_LED         (notification light can pulse)
+         64 = LIGHTS_BATTERY_LED           (device HAS a battery light)
+         total 75
+
+         Note: bit 64 is required for the battery light to work at all, because
+         LineageBatteryLights.isSupported() gates on LIGHTS_BATTERY_LED (64), not
+         LIGHTS_RGB_BATTERY_LED (2). The lineage-sdk "set this to 11" comment
+         predates the 64 bit.
+    -->
+    <integer name="config_deviceLightCapabilities">75</integer>
+</resources>

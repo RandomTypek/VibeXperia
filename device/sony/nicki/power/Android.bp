@@ -1,0 +1,15 @@
+cc_binary {
+    name: "vendor.lineage.power@1.0-service.nicki",
+    init_rc: ["vendor.lineage.power@1.0-service.nicki.rc"],
+    relative_install_path: "hw",
+    proprietary: true,
+    srcs: ["service.cpp"],
+    shared_libs: [
+        "libbase",
+        "libhidlbase",
+        "libhidltransport",
+        "libutils",
+        "liblog",
+        "vendor.lineage.power@1.0_vendor",
+    ],
+}

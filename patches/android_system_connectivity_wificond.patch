@@ -1,0 +1,29 @@
+diff --git a/net/netlink_utils.cpp b/net/netlink_utils.cpp
+index 18246f7..94aa8b5 100644
+--- a/net/netlink_utils.cpp
++++ b/net/netlink_utils.cpp
+@@ -384,11 +384,21 @@ bool NetlinkUtils::GetStationInfo(uint32_t interface_index,
+     LOG(ERROR) << "Failed to get NL80211_STA_INFO_TX_BITRATE";
+     return false;
+   }
+-  uint32_t tx_bitrate;
++  uint32_t tx_bitrate = 0;
++  // Older drivers (e.g. the Prima/wcnss WLAN on msm8x27) report the 16-bit
++  // NL80211_RATE_INFO_BITRATE instead of the 32-bit BITRATE32. Prefer the
++  // 32-bit value, fall back to the 16-bit one, and do NOT fail the whole
++  // signal poll just because the link speed is unavailable - otherwise the
++  // RSSI is lost too and the status-bar WiFi icon shows no signal.
+   if (!tx_bitrate_attr.GetAttributeValue(NL80211_RATE_INFO_BITRATE32,
+                                          &tx_bitrate)) {
+-    LOG(ERROR) << "Failed to get NL80211_RATE_INFO_BITRATE32";
+-    return false;
++    uint16_t tx_bitrate16 = 0;
++    if (tx_bitrate_attr.GetAttributeValue(NL80211_RATE_INFO_BITRATE,
++                                          &tx_bitrate16)) {
++      tx_bitrate = tx_bitrate16;
++    } else {
++      LOG(WARNING) << "No tx bitrate (BITRATE32/BITRATE) in station info";
++    }
+   }
+ 
+   *out_station_info = StationInfo(tx_good, tx_bad, tx_bitrate, current_rssi);
