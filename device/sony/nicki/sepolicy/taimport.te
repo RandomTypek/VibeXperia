@@ -5,7 +5,8 @@ init_daemon_domain(taimport)
 
 allow taimport init:unix_stream_socket connectto;
 allow taimport tad_static:unix_stream_socket connectto;
-allow taimport self:capability dac_override;
+# NOTE (nicki 16.0): dropped self:capability dac_override — Pie neverallows it
+# for non-whitelisted domains; taimport runs as root so DAC is already bypassed.
 allow taimport tad_socket:sock_file write;
 allow taimport system_data_file:dir { create write add_name };
 

@@ -8,6 +8,25 @@
             <instance>default</instance>
         </interface>
     </hal>
+    <!--
+      nicki: BT HAL served BINDERIZED by android.hardware.bluetooth@1.0-service
+      (/vendor/bin/hw, own process; it dlopens the @1.0-impl via
+      defaultPassthroughServiceImplementation and re-serves it over hwbinder).
+      Must be hwbinder here, NOT passthrough: passthrough runs the impl inside
+      com.android.bluetooth where initialize()'s cb->linkToDeath() on a
+      same-process callback aborts on Pie -> hci_thread SIGABRT crash-loop that
+      starves the CPU. See product/qcom-bluetooth.mk. (Oreo 15.1 got away with
+      passthrough; Pie does not.)
+    -->
+    <hal format="hidl">
+        <name>android.hardware.bluetooth</name>
+        <transport>hwbinder</transport>
+        <version>1.0</version>
+        <interface>
+            <name>IBluetoothHci</name>
+            <instance>default</instance>
+        </interface>
+    </hal>
     <hal format="hidl">
         <name>android.hardware.sensors</name>
         <transport>hwbinder</transport>

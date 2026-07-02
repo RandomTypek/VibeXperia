@@ -1,31 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!--
-  VibeXperia — LineageOS 15.1 (Android 8.1) for Sony Xperia M (nicki).
-  Copy to .repo/local_manifests/nicki.xml after `repo init -b lineage-15.1`,
-  then `repo sync`.
-
-  NOTE: the device tree itself lives in the VibeXperia repo (device/sony/nicki)
-  and is copied in manually — see README. This fragment pulls the kernel,
-  vendor blobs, and the qcom/sony common trees the device tree depends on.
--->
 <manifest>
   <remote name="randomtypek" fetch="https://github.com/RandomTypek/" />
   <remote name="droncheg"    fetch="https://github.com/droncheg/" />
   <remote name="themuppets"  fetch="https://github.com/TheMuppets/" />
 
-  <!-- Kernel — this port's kernel work (binder SG/multidev, timerfd, PR_CAP_AMBIENT, net, display) -->
   <project name="android_kernel_sony_msm8x27" path="kernel/sony/msm8x27"
            remote="randomtypek" revision="lineage-15.1-nicki" />
-
-  <!-- Proprietary Sony/Qualcomm blobs (lineage-15.1 contains nicki) -->
   <project name="proprietary_vendor_sony" path="vendor/sony"
-           remote="themuppets" revision="lineage-15.1" />
-
-  <!-- qcom common (official LineageOS) -->
+           remote="themuppets" revision="lineage-16.0" />
   <project name="LineageOS/android_device_qcom_common" path="device/qcom/common"
            remote="github" revision="lineage-15.1" />
-
-  <!-- sony common (no 15.x common exists upstream; the 14.1 common is used) -->
   <project name="android_device_sony_common" path="device/sony/common"
            remote="droncheg" revision="cm-14.1" />
 </manifest>

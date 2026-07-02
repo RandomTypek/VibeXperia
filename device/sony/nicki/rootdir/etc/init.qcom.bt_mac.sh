@@ -18,6 +18,27 @@
 BT_NV=/persist/.bt_nv.bin
 WLAN_NV=/persist/WCNSS_qcom_wlan_nv.bin
 
+# Publish the controller BD_ADDR from the NV to the property the AOSP Bluetooth
+# HAL actually reads. bluetooth_address.cc::get_local_address() only accepts an
+# ASCII "AA:BB:CC:DD:EE:FF" from ro.bt.bdaddr_path / ro.boot.btmacaddr /
+# persist.service.bdroid.bdaddr -- it does NOT parse the binary .bt_nv.bin (the
+# controller NV). With none of them set, vendor_interface.cc does
+# LOG_ALWAYS_FATAL("Open: No Bluetooth Address!") and android.hardware.bluetooth
+# @1.0-service crash-loops (~every 0.8s), which starves this dual-A5 and ANRs the
+# UI. config_bt_addr provisions the NV but never bridged it to the HAL (Oreo
+# 15.1 had the same gap; it only surfaced on Pie once BT ran binderized). Read
+# the 6 address bytes at NV offset 3 (stored LSB-first) and export them as ASCII.
+# Runs every boot -- including when the provisioning below is an idempotent no-op.
+publish_bdaddr() {
+    [ -f "$BT_NV" ] || return
+    _raw=$(dd if="$BT_NV" bs=1 skip=3 count=6 2>/dev/null | od -An -tx1 | tr -d ' \n')
+    [ ${#_raw} -eq 12 ] || return
+    _mac="${_raw:10:2}:${_raw:8:2}:${_raw:6:2}:${_raw:4:2}:${_raw:2:2}:${_raw:0:2}"
+    case "$_mac" in 00:00:00:00:00:00|ff:ff:ff:ff:ff:ff) return ;; esac
+    setprop persist.service.bdroid.bdaddr "$_mac"
+}
+publish_bdaddr
+
 [ -f "$WLAN_NV" ] || exit 0
 
 # Factory Wi-Fi MAC: 6 bytes in display order at offset 10 of the WCNSS NV.
@@ -70,4 +91,8 @@ rm -f /data/misc/bluedroid/bt_config.conf /data/misc/bluedroid/bt_config.bak 2>/
 # valid-format .bt_nv.bin untouched, so our provisioned address persists. This
 # runs as part of the config_bt_addr oneshot so provisioning is guaranteed to
 # complete before btnvtool (and thus before bluedroid) reads the NV.
-exec /system/bin/btnvtool -O
+/system/bin/btnvtool -O
+
+# Re-publish now that the NV holds the freshly provisioned Sony address (the
+# top-of-script publish ran before this migration wrote it).
+publish_bdaddr

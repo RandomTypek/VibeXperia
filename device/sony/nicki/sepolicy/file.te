@@ -1,4 +1,8 @@
-type vibeamp_sysfs, sysfs_type, file_type;
+# NOTE (nicki 16.0): sysfs nodes must be fs_type (like kcal_sysfs below), NOT
+# file_type. As file_type they inherited init/vendor_init's broad file_type dir
+# rules and tripped the Pie neverallow forbidding any domain from creating in a
+# sysfs_type dir. fs_type is the AOSP convention (type sysfs_X, fs_type, sysfs_type).
+type vibeamp_sysfs, sysfs_type, fs_type;
 type kcal_sysfs, fs_type, sysfs_type;
 # rmt.te grants r_dir_file(rmt, sysfs_rmtfs) but the type was never declared
 # (was provided by the old qcom common). Declare it like other sysfs labels.
@@ -6,9 +10,12 @@ type sysfs_rmtfs, sysfs_type, fs_type;
 
 type tad_socket, file_type;
 
-type led_deamon_data_file, file_type;
-type sensord_data_file, file_type;
+# NOTE (nicki 16.0): /data/ types must carry data_file_type + core_data_file_type
+# (Pie sepolicy_tests build assert) — they label /data/LED_deamon.* and
+# /data/misc/sensor.
+type led_deamon_data_file, file_type, data_file_type, core_data_file_type;
+type sensord_data_file, file_type, data_file_type, core_data_file_type;
 
-type sysfs_led, sysfs_type, file_type;
+type sysfs_led, sysfs_type, fs_type;
 
 type debugfs_asoc, debugfs_type, file_type;

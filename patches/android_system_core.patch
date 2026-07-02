@@ -1,8 +1,8 @@
 diff --git a/adb/daemon/main.cpp b/adb/daemon/main.cpp
-index c510535a5..cd1be859a 100644
+index 49a261f6f..d4dac17cc 100644
 --- a/adb/daemon/main.cpp
 +++ b/adb/daemon/main.cpp
-@@ -177,8 +177,9 @@ int adbd_main(int server_port) {
+@@ -202,8 +202,9 @@ int adbd_main(int server_port) {
      drop_privileges(server_port);
  
      bool is_usb = false;
@@ -15,20 +15,21 @@ index c510535a5..cd1be859a 100644
          is_usb = true;
      }
 diff --git a/adb/daemon/usb.cpp b/adb/daemon/usb.cpp
-index 0f92282c4..f56e07782 100644
+index 78693248d..ecb6d29f1 100644
 --- a/adb/daemon/usb.cpp
 +++ b/adb/daemon/usb.cpp
-@@ -459,10 +459,142 @@ static void usb_ffs_init() {
+@@ -531,10 +531,143 @@ static void usb_ffs_init() {
      std::thread(usb_ffs_open_thread, h).detach();
  }
  
 +// Legacy in-kernel adb gadget (/dev/android_adb) support.
 +//
-+// Oreo's adbd is functionfs-only, but some older 3.x kernels (e.g. the
++// Pie's adbd is functionfs-only, but some older 3.x kernels (e.g. the
 +// Sony msm8x27 used by nicki) ship an android composite gadget whose only
 +// adb function is the in-kernel f_adb driver exposing /dev/android_adb.
 +// This path lets adbd drive that gadget, mirroring the dual-transport
-+// behaviour LineageOS 14.1 still had in usb_linux_client.cpp.
++// behaviour LineageOS 14.1 still had in usb_linux_client.cpp. Ported from
++// the nicki 15.1 runtime-probe patch (no build flag; picked at runtime).
 +
 +#define USB_ADB_PATH "/dev/android_adb"
 +
@@ -163,10 +164,10 @@ index 0f92282c4..f56e07782 100644
  
  int usb_write(usb_handle* h, const void* data, int len) {
 diff --git a/adb/daemon/usb.h b/adb/daemon/usb.h
-index 55b59952f..10ff3f239 100644
+index 15a7f6539..263e1e86b 100644
 --- a/adb/daemon/usb.h
 +++ b/adb/daemon/usb.h
-@@ -34,6 +34,9 @@ struct usb_handle {
+@@ -45,6 +45,9 @@ struct usb_handle {
      void (*kick)(usb_handle* h);
      void (*close)(usb_handle* h);
  

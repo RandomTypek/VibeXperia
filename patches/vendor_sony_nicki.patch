@@ -1,0 +1,12 @@
+diff --git a/nicki/nicki-vendor.mk b/nicki/nicki-vendor.mk
+index 2aa3f079..f2d48c6c 100644
+--- a/nicki/nicki-vendor.mk
++++ b/nicki/nicki-vendor.mk
+@@ -142,7 +142,6 @@ PRODUCT_COPY_FILES += \
+     vendor/sony/nicki/proprietary/lib/libQSEEComAPI.so:system/lib/libQSEEComAPI.so \
+     vendor/sony/nicki/proprietary/lib/libril-qc-qmi-1.so:system/lib/libril-qc-qmi-1.so \
+     vendor/sony/nicki/proprietary/lib/libril-qcril-hook-oem.so:system/lib/libril-qcril-hook-oem.so \
+-    vendor/sony/nicki/proprietary/lib/libril.so:system/lib/libril.so \
+     vendor/sony/nicki/proprietary/lib/libSHIMDivxDrm.so:system/lib/libSHIMDivxDrm.so \
+     vendor/sony/nicki/proprietary/vendor/lib/drm/libdrmwvmplugin.so:system/vendor/lib/drm/libdrmwvmplugin.so \
+     vendor/sony/nicki/proprietary/vendor/lib/egl/eglsubAndroid.so:system/vendor/lib/egl/eglsubAndroid.so \

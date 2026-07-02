@@ -10,6 +10,7 @@ allow ta_qmi_service self:socket { create bind read write setopt };
 allow ta_qmi_service self:socket ioctl;
 # 8.1 neverallowxperm (domain.te) requires socket ioctls to be whitelisted.
 allowxperm ta_qmi_service self:socket ioctl msm_sock_ipc_ioctls;
-allow ta_qmi_service self:capability { dac_override };
+# NOTE (nicki 16.0): dropped self:capability dac_override — Pie neverallows it;
+# ta_qmi_service runs as root so DAC is already bypassed.
 
 

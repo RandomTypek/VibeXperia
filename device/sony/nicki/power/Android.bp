@@ -2,7 +2,10 @@ cc_binary {
     name: "vendor.lineage.power@1.0-service.nicki",
     init_rc: ["vendor.lineage.power@1.0-service.nicki.rc"],
     relative_install_path: "hw",
-    proprietary: true,
+    // nicki 16.0 is non-Treble (no BOARD_VNDK_VERSION), so Pie generates no
+    // "_vendor" VNDK variant of the interface (Oreo did, which is why the 15.1
+    // Android.bp used vendor.lineage.power@1.0_vendor + proprietary:true).
+    // Build as a plain system HAL in /system/bin/hw against the plain interface.
     srcs: ["service.cpp"],
     shared_libs: [
         "libbase",
@@ -10,6 +13,6 @@ cc_binary {
         "libhidltransport",
         "libutils",
         "liblog",
-        "vendor.lineage.power@1.0_vendor",
+        "vendor.lineage.power@1.0",
     ],
 }

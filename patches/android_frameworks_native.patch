@@ -1,20 +1,87 @@
 diff --git a/services/sensorservice/SensorDevice.cpp b/services/sensorservice/SensorDevice.cpp
-index 7d9b0b730..905b15f69 100644
+index 115a983bc..dfd482c80 100644
 --- a/services/sensorservice/SensorDevice.cpp
 +++ b/services/sensorservice/SensorDevice.cpp
-@@ -663,8 +663,13 @@ void SensorDevice::convertToSensorEvents(
+@@ -672,8 +672,13 @@ void SensorDevice::convertToSensorEvents(
  }
  
  void SensorDevice::handleHidlDeath(const std::string & detail) {
 -    // restart is the only option at present.
 -    LOG_ALWAYS_FATAL("Abort due to ISensors hidl service failure, detail: %s.", detail.c_str());
-+    // nicki: the legacy 2012 Bosch (bsthal) sensors HAL is ABI-incompatible
-+    // with Oreo and crashes during HIDL calls. Upstream LOG_ALWAYS_FATAL here
-+    // takes system_server down with it (boot loop). Don't abort — log and
-+    // carry on with no working sensors so the device boots. (SensorDevice
-+    // already tolerates a non-functional HAL: every method early-returns.)
++    // nicki (ported from 15.1): the legacy Sony/Bosch sensors HAL can crash
++    // during HIDL calls. Upstream LOG_ALWAYS_FATAL here takes system_server
++    // down with it (boot loop). Don't abort — log and carry on with no working
++    // sensors so the device boots. (SensorDevice already tolerates a
++    // non-functional HAL: every method early-returns.)
 +    ALOGE("ISensors HIDL service failure (continuing without sensors): %s.",
 +          detail.c_str());
  }
  
  // ---------------------------------------------------------------------------
+diff --git a/services/surfaceflinger/DisplayHardware/FramebufferSurface.cpp b/services/surfaceflinger/DisplayHardware/FramebufferSurface.cpp
+index e6d783434..412dc69e5 100644
+--- a/services/surfaceflinger/DisplayHardware/FramebufferSurface.cpp
++++ b/services/surfaceflinger/DisplayHardware/FramebufferSurface.cpp
+@@ -161,8 +161,24 @@ void FramebufferSurface::freeBufferLocked(int slotIndex) {
+ 
+ void FramebufferSurface::onFrameCommitted() {
+     if (mHasPendingRelease) {
++        // nicki/msm8960: on a HWC1-via-HWC2On1Adapter that reports
++        // PresentFenceIsNotReliable, the present fence never reliably signals.
++        // Attaching it here as THIS framebuffer buffer's release fence means the
++        // buffer is never freed for reuse, so SF's own next FB dequeue/render
++        // blocks in sync_fence_wait ~10s (SF stuck in msm_fb_pan_idle /
++        // adreno_drawctxt_wait) -- which cascades to EVERY producer and
++        // hard-freezes the UI during any sustained composition (spinner popup,
++        // notification shade, list scroll; DequeueBufferDuration=9.9s). Skip the
++        // unreliable fence so the FB buffer is released immediately (NO_FENCE).
++        // This is the SF-output sibling of the disable_backpressure (frameMissed)
++        // and postFramebuffer per-layer release-fence fixes -- same unreliable-
++        // present-fence root cause (task #28). The vendor HWC's blocking FB pan
++        // (msm_fb_pan_idle) already serializes access on this single display, so
++        // dropping the redundant fence is safe; steady-state (non-cycling)
++        // surfaces never hit it, which is why the static keyguard hid it.
+         sp<Fence> fence = mHwc.getPresentFence(mDisplayType);
+-        if (fence->isValid()) {
++        if (fence->isValid() &&
++                !mHwc.hasCapability(HWC2::Capability::PresentFenceIsNotReliable)) {
+             status_t result = addReleaseFence(mPreviousBufferSlot,
+                     mPreviousBuffer, fence);
+             ALOGE_IF(result != NO_ERROR, "onFrameCommitted: failed to add the"
+diff --git a/services/surfaceflinger/SurfaceFlinger.cpp b/services/surfaceflinger/SurfaceFlinger.cpp
+index f513b9fd7..b7cc3a78f 100644
+--- a/services/surfaceflinger/SurfaceFlinger.cpp
++++ b/services/surfaceflinger/SurfaceFlinger.cpp
+@@ -2210,6 +2210,23 @@ void SurfaceFlinger::postFramebuffer()
+         }
+         displayDevice->onSwapBuffersCompleted();
+         displayDevice->makeCurrent();
++        // nicki/msm8960: a HWC1-via-HWC2On1Adapter that reports
++        // PresentFenceIsNotReliable also yields UNRELIABLE per-layer release
++        // fences from getLayerReleaseFence() -- they derive from the same
++        // retire fence that never signals. Handing that fence to the producer
++        // makes its next dequeueBuffer() block ~10s waiting for a buffer that is
++        // never released (DequeueBufferDuration=9.9s), hard-freezing any
++        // ANIMATING surface (timezone spinner popup, notification shade) even
++        // though debug.sf.disable_backpressure=1 keeps steady-state compositing
++        // going -- a static/non-cycling surface (keyguard) never cycles buffers
++        // so it hid this. Treat DEVICE-composited buffers as immediately
++        // reusable (NO_FENCE) when the HWC fence is unreliable; the CLIENT-
++        // composited path below still merges the client-target acquire fence,
++        // which is a real GPU (EGL) fence and IS reliable, so correctness there
++        // is preserved. Sibling of the frameMissed/disable_backpressure fix for
++        // the INVALIDATE path -- same unreliable-fence root cause.
++        const bool hwcReleaseFenceUnreliable = getHwComposer().hasCapability(
++                HWC2::Capability::PresentFenceIsNotReliable);
+         for (auto& layer : displayDevice->getVisibleLayersSortedByZ()) {
+             sp<Fence> releaseFence = Fence::NO_FENCE;
+ 
+@@ -2217,7 +2234,7 @@ void SurfaceFlinger::postFramebuffer()
+             // by HWC only when the release fence from this frame (if any) is
+             // signaled.  Always get the release fence from HWC first.
+             auto hwcLayer = layer->getHwcLayer(hwcId);
+-            if (hwcId >= 0) {
++            if (hwcId >= 0 && !hwcReleaseFenceUnreliable) {
+                 releaseFence = getBE().mHwc->getLayerReleaseFence(hwcId, hwcLayer);
+             }
+ 

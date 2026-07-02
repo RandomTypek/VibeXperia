@@ -1,4 +1,9 @@
-type_transition mm-qcamerad system_data_file:sock_file camera_socket "cam_socket0";
+# NOTE (nicki 16.0): the legacy 'camera_socket' type_transition (cam_socket0
+# under system_data_file, i.e. /data/) was removed — Pie/Treble routes the
+# camera daemon socket through vendor_camera_data_file (/data/vendor/camera),
+# already handled by device/qcom/sepolicy/vendor/common/mm-qcamerad.te.
+# Also dropped the 'mpdecision' rule: Pie replaced mpdecision with perfd and
+# nicki disables the mpdecision daemon anyway.
 allow mm-qcamerad system_data_file:dir w_dir_perms;
 allow mm-qcamerad system_data_file:sock_file unlink;
 
@@ -7,4 +12,3 @@ allow mm-qcamerad audio_device:chr_file rw_file_perms;
 
 allow mm-qcamerad mpctl_socket:dir search;
 allow mm-qcamerad mpctl_socket:sock_file write;
-allow mm-qcamerad mpdecision:unix_stream_socket connectto;

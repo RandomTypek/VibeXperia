@@ -1,11 +1,16 @@
-# VibeXperia — LineageOS 15.1 (Android 8.1) for the Sony Xperia M (`nicki`)
+# VibeXperia — LineageOS 16.0 (Android 9) for the Sony Xperia M (`nicki`)
 
-An experimental, **working** revival of LineageOS 15.1 / Android 8.1.0 on the
-2013 Sony Xperia M (codename **nicki**, Qualcomm MSM8227, dual Cortex‑A5, Adreno
-305, ~880 MB RAM, Linux 3.4 kernel). The upstream 15.1 device tree compiled but
-never booted; this brings it all the way up to a daily‑usable state.
+An experimental port of **LineageOS 16.0 / Android 9 (Pie)** to the 2013 Sony
+Xperia M (codename **nicki**, Qualcomm MSM8227, dual Cortex‑A5, Adreno 305,
+~880 MB RAM, Linux 3.4 kernel). Forward‑ported from the working
+[15.1 port](https://github.com/RandomTypek/VibeXperia/tree/main).
 
-> Hobby port. SELinux is currently **permissive**.
+> Hobby port, **still in bring‑up**. SELinux is **permissive**. The device tree
+> still carries boot‑bring‑up diagnostics (forced‑adb, `/cache` boot tracers in
+> `init.target.rc`) that should be stripped before any "release" build.
+
+This is the **`lineage-16.0`** branch. The **`main`** branch is the (more
+complete) 15.1 port.
 
 ## What works
 
@@ -13,80 +18,70 @@ never booted; this brings it all the way up to a daily‑usable state.
 |---|---|
 | Boot to launcher (Trebuchet), Settings, touch, brightness | ✅ |
 | ADB (recovery **and** booted) + USB/PC charging | ✅ |
-| Suspend / resume (instant wake + touch) | ✅ |
-| Wi‑Fi (assoc, IPv4/IPv6, DNS, autoconnect, signal bars) | ✅ |
-| Audio + video playback | ✅ |
+| Display + compositing (bootanim, keyguard, **popups / notification shade / list scroll**) | ✅ |
+| Wi‑Fi (assoc, DNS, autoconnect, **signal bars**) | ✅ |
 | Sensors 5/5 (accel, prox, mag, orient, light + fused rotation) | ✅ |
+| Audio | ✅ |
+| NFC | ✅ |
 | Telephony / RIL (insert a SIM) | ✅ |
-| **Camera — enumerate + open + live preview + photo capture** | ✅ |
-| Web browser (Jelly / Android WebView) | ✅ |
-| Landscape rotation + notification shade | ✅ |
-| Notification LED, performance‑profile picker, baseband, BT MAC | ✅ |
+| Performance tuning (zram/swappiness, low‑RAM) | ✅ |
+| **Bluetooth** | ⚠️ HAL up, radio doesn't (chip rejects a controller‑init cmd) |
+| **Camera** | ⚠️ 0 devices (HAL1 fixes from 15.1 not yet ported) |
 | SELinux enforcing | ⚠️ permissive (parked) |
-| Microphone ~10 kHz whine | ⚠️ hardware coupling (deferred) |
 
-## Highlights of what it took
+## Highlights of what it took (Oreo → Pie on a 3.4 kernel)
 
-Oreo on a 2013 CAF 3.4 kernel needed real kernel work, not just config:
+Pie carries the 15.1 kernel/graphics work (binder SG/multidev, alarmtimer,
+Composer 2.1). The 16.0‑specific bring‑up:
 
-- **binder**: backported multiple `/dev` instances (`hwbinder`/`vndbinder`) **and**
-  scatter‑gather (`BINDER_TYPE_PTR/FDA`, `BC_TRANSACTION_SG`) — the make‑or‑break
-  for Oreo HIDL.
-- **timerfd / alarmtimer**: `CLOCK_BOOTTIME` + `*_ALARM` so wake‑alarms work.
-- **PR_CAP_AMBIENT**: ambient capabilities so `crash_dump` produces tombstones.
-- **net**: `NL80211_ATTR_MAC` + lenient `rtnetlink` attr parsing to unblock Oreo
-  netd routing/DNS.
-- **display**: fixed the early‑suspend vs Oreo‑HWC resume deadlock.
-- **camera**: 4 fixes in the HAL1 shim (`hardware/interfaces`) — usage
-  sign‑extension, gralloc‑lock of preview buffers, registerMemory bypass, and a
-  single‑open cookie‑recovery that fixes the snapshot SIGSEGV.
+- **SurfaceFlinger, unreliable HWC fences** — the msm8960 HWC1‑via‑`HWC2On1Adapter`
+  reports `PresentFenceIsNotReliable`. Two Pie‑only stalls followed:
+  1. `frameMissed` back‑pressure skipped compositing forever → black boot.
+     Fixed with `debug.sf.disable_backpressure=1`.
+  2. `FramebufferSurface` released its own FB buffer with that unreliable present
+     fence → SF stalled ~10 s (`msm_fb_pan_idle`) on any animating surface
+     (popup, shade, scroll). Fixed by dropping the fence (`NO_FENCE`) when the
+     capability is set. See `patches/android_frameworks_native.patch`.
+- **kernel `commoncap`** — ambient caps were zeroed on a non‑root exec, so init’s
+  `capabilities` line never reached HALs (`android.hardware.wifi@1.0-service`
+  couldn’t get `NET_ADMIN` → no Wi‑Fi). Fixed in the kernel repo.
+- **wificond** — the old prima driver reports TX bitrate in the legacy 16‑bit
+  `NL80211_RATE_INFO_BITRATE`; Pie wificond required the 32‑bit variant and
+  failed the whole signal poll → RSSI −127 → **no Wi‑Fi signal bars**. Added the
+  fallback. See `patches/android_system_connectivity_wificond.patch`.
+- **rild** — a stale `libril.so` blob shadowed the CAF one that defines
+  `ril_service_name` (removed in `vendor/`); also `O_TMPFILE` + legacy
+  `/dev/android_adb` adbd + recovery‑wipe + audio kernel‑header fixes.
 
-Full blow‑by‑blow in [`15.1-BUILD-NOTES.md`](15.1-BUILD-NOTES.md).
+Full blow‑by‑blow in [`16.0-BUILD-NOTES.md`](16.0-BUILD-NOTES.md).
 
 ## Repo layout
 
 ```
-device/sony/nicki/      Device tree (this repo)
+device/sony/nicki/      Device tree (this repo, 16.0)
 patches/                Changes to upstream LineageOS repos, one .patch each
 local_manifests/        repo manifest fragment (pulls the kernel + vendor blobs)
-15.1-BUILD-NOTES.md     Detailed bring-up log
+16.0-BUILD-NOTES.md     Detailed bring-up log
 ```
 
 Kernel lives in a separate repo:
 **[android_kernel_sony_msm8x27](https://github.com/RandomTypek/android_kernel_sony_msm8x27)**
-(branch `lineage-15.1-nicki`).
+(branch `lineage-15.1-nicki` — shared with 15.1; carries the ambient‑cap and
+`O_TMPFILE` fixes).
 
 Proprietary Sony/Qualcomm blobs are **not** included — pull them from
-[TheMuppets](https://github.com/TheMuppets/proprietary_vendor_sony) (`lineage-15.1`).
+[TheMuppets](https://github.com/TheMuppets/proprietary_vendor_sony)
+(`lineage-16.0`). The one vendor change (removing the stale `libril.so` from
+`nicki-vendor.mk`) is in `patches/vendor_sony_nicki.patch`.
 
 ## Building
 
-```bash
-# 1. LineageOS 15.1 sources
-repo init -u https://github.com/LineageOS/android.git -b lineage-15.1
-
-# 2. add this manifest fragment (kernel + vendor blobs + qcom/sony common)
-cp local_manifests/nicki.xml .repo/local_manifests/
+```sh
+repo init -u https://github.com/LineageOS/android.git -b lineage-16.0
+# add local_manifests/nicki.xml, then:
 repo sync
-
-# 3. drop in the device tree from this repo
-cp -a device/sony/nicki <android_root>/device/sony/
-
-# 4. apply the upstream patches (filename = target project path, '_' -> '/')
-#    e.g. patches/android_hardware_interfaces.patch -> hardware/interfaces
-(cd hardware/interfaces && git apply .../patches/android_hardware_interfaces.patch)
-#    ...repeat for each patch
-
-# 5. build
-. build/envsetup.sh && brunch nicki
+# apply patches/ to their respective repos, drop device/sony/nicki in place
+source build/envsetup.sh && lunch lineage_nicki-userdebug && mka bacon
 ```
 
-Gotchas (see `15.1-BUILD-NOTES.md`): recovery is flashed to the **boot**
-partition (`fastboot flash boot recovery.img`); for a clean wipe `mke2fs`
-userdata in recovery; the device is non‑Treble (`vendor` under `/system`).
-
-## Credits
-
-Based on the LineageOS 15.1 nicki device tree (droncheg) and the LineageOS
-project. Bring‑up by [@RandomTypek](https://github.com/RandomTypek), with
-debugging assistance from Claude (Anthropic).
+> Not an official LineageOS build. No warranty. Flashing may brick your device.

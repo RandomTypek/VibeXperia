@@ -1,0 +1,17 @@
+diff --git a/hal/Android.mk b/hal/Android.mk
+index 089067662..c1ab060dc 100644
+--- a/hal/Android.mk
++++ b/hal/Android.mk
+@@ -171,7 +171,11 @@ LOCAL_C_INCLUDES += \
+ 	$(LOCAL_PATH)/audio_extn \
+ 	$(LOCAL_PATH)/voice_extn
+ 
+-LOCAL_HEADER_LIBRARIES := libhardware_headers
++# NOTE (nicki 16.0): append, don't clobber — line ~39 already set
++# LOCAL_HEADER_LIBRARIES := generated_kernel_headers for the kernel usr/include
++# (sound/msmcal-hwdep.h under HWDEP_CAL). A ':=' here silently dropped it and
++# broke the audio.primary build. Same module block, no CLEAR_VARS between them.
++LOCAL_HEADER_LIBRARIES += libhardware_headers
+ 
+ ifeq ($(strip $(AUDIO_FEATURE_ENABLED_LISTEN)),true)
+     LOCAL_CFLAGS += -DAUDIO_LISTEN_ENABLED

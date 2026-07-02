@@ -1,1 +1,3 @@
-allow appdomain sysfs_thermal:file r_file_perms;
+# NOTE (nicki 16.0): exclude isolated_app — Pie's isolated_app.te neverallows it
+# any sysfs access. Granting the whole appdomain tripped that assertion.
+allow { appdomain -isolated_app } sysfs_thermal:file r_file_perms;

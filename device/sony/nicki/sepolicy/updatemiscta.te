@@ -3,7 +3,8 @@ type updatemiscta_exec, exec_type, file_type;
 
 init_daemon_domain(updatemiscta)
 
-allow updatemiscta self:capability { dac_override };
+# NOTE (nicki 16.0): dropped self:capability dac_override — Pie neverallows it;
+# updatemiscta runs as root so DAC is already bypassed.
 allow updatemiscta property_socket:sock_file write;
 allow updatemiscta tad_socket:sock_file write;
 allow updatemiscta updatemiscta_prop:property_service set;
