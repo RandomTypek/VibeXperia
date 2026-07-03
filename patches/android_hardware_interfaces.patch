@@ -1,0 +1,240 @@
+diff --git a/camera/device/1.0/default/CameraDevice.cpp b/camera/device/1.0/default/CameraDevice.cpp
+index a1f1830f..5c373c94 100644
+--- a/camera/device/1.0/default/CameraDevice.cpp
++++ b/camera/device/1.0/default/CameraDevice.cpp
+@@ -16,6 +16,7 @@
+ 
+ #define LOG_TAG "CamDev@1.0-impl"
+ #include <hardware/camera.h>
++#include <hardware/gralloc.h>
+ #include <hardware/gralloc1.h>
+ #include <hidlmemory/mapping.h>
+ #include <log/log.h>
+@@ -36,6 +37,30 @@ using ::android::hardware::graphics::common::V1_0::PixelFormat;
+ 
+ HandleImporter CameraDevice::sHandleImporter;
+ 
++// nicki: track the single currently-open HAL1 device so sGetMemory can recover
++// the real CameraDevice* when the legacy snapshot stream passes a bogus cookie.
++Mutex CameraDevice::sOpenDeviceLock;
++CameraDevice* CameraDevice::sOpenDevice = nullptr;
++
++// nicki: the legacy HAL1 camera blob (camera.vendor.msm8960.so) reads the preview
++// buffer's mapped CPU address straight out of the QC private_handle_t (->base); it
++// imports no gralloc/mapper symbols of its own. Oreo's gralloc mapper imports
++// lazily (no mmap until lock), so after HandleImporter::importBuffer ->base is
++// still 0 -> the blob null-derefs in QCameraStream_preview::initDisplayBuffers().
++// Force the mmap by locking each freshly-imported buffer through the SAME legacy
++// gralloc0 module that allocated it, which populates ->base.
++static const gralloc_module_t* nickiGrallocModule() {
++    static const gralloc_module_t* sMod = []() -> const gralloc_module_t* {
++        const hw_module_t* mod = nullptr;
++        if (hw_get_module(GRALLOC_HARDWARE_MODULE_ID, &mod) != 0 || mod == nullptr) {
++            ALOGE("nicki: hw_get_module(gralloc) failed; preview buffers won't be mapped");
++            return nullptr;
++        }
++        return reinterpret_cast<const gralloc_module_t*>(mod);
++    }();
++    return sMod;
++}
++
+ Status CameraDevice::getHidlStatus(const int& status) {
+     switch (status) {
+         case 0: return Status::OK;
+@@ -137,7 +162,12 @@ void CameraDevice::setConnectionStatus(bool connected) {
+ 
+ void CameraDevice::CameraPreviewWindow::cleanUpCirculatingBuffers() {
+     Mutex::Autolock _l(mLock);
++    const gralloc_module_t* gr = nickiGrallocModule();
+     for (auto pair : mCirculatingBuffers) {
++        // nicki: balance the gralloc lock taken in sDequeueBuffer before freeing.
++        if (gr != nullptr && gr->unlock != nullptr) {
++            gr->unlock(gr, pair.second);
++        }
+         sHandleImporter.freeBuffer(pair.second);
+     }
+     mCirculatingBuffers.clear();
+@@ -171,6 +201,27 @@ int CameraDevice::sDequeueBuffer(struct preview_stream_ops* w,
+                         s = Status::INTERNAL_ERROR;
+                         return;
+                     } else {
++                        // nicki: force-map the buffer so the legacy blob sees a
++                        // non-null ->base. Oreo's mapper imports lazily, leaving
++                        // the QC private_handle unmapped -> blob null-derefs in
++                        // initDisplayBuffers. A gralloc0 lock mmaps it and writes
++                        // ->base. Keep it locked for the buffer's lifetime (the
++                        // blob reads ->base on every frame); unlocked on free.
++                        const gralloc_module_t* gr = nickiGrallocModule();
++                        if (gr != nullptr && gr->lock != nullptr) {
++                            void* vaddr = nullptr;
++                            int gw = object->mPreviewWidth ? (int)object->mPreviewWidth : 1;
++                            int gh = object->mPreviewHeight ? (int)object->mPreviewHeight : 1;
++                            int lerr = gr->lock(gr, importedBuf,
++                                    GRALLOC_USAGE_SW_READ_OFTEN |
++                                    GRALLOC_USAGE_SW_WRITE_OFTEN |
++                                    GRALLOC_USAGE_HW_CAMERA_WRITE,
++                                    0, 0, gw, gh, &vaddr);
++                            if (lerr != 0 || vaddr == nullptr) {
++                                ALOGW("%s: gralloc lock to map preview buffer failed"
++                                      " (err=%d vaddr=%p)", __FUNCTION__, lerr, vaddr);
++                            }
++                        }
+                         object->mCirculatingBuffers[bufferId] = importedBuf;
+                         object->mBufferIdMap[&(object->mCirculatingBuffers[bufferId])] = bufferId;
+                     }
+@@ -226,6 +277,9 @@ int CameraDevice::sSetBuffersGeometry(struct preview_stream_ops* w,
+     }
+ 
+     object->cleanUpCirculatingBuffers();
++    // nicki: remember geometry so dequeued buffers can be gralloc-locked (mapped).
++    object->mPreviewWidth = (width > 0) ? (uint32_t)width : 0;
++    object->mPreviewHeight = (height > 0) ? (uint32_t)height : 0;
+     return getStatusT(
+             object->mPreviewCallback->setBuffersGeometry(width, height, (PixelFormat) format));
+ }
+@@ -259,7 +313,14 @@ int CameraDevice::sSetUsage(struct preview_stream_ops* w, int usage) {
+     }
+ 
+     object->cleanUpCirculatingBuffers();
+-    return getStatusT(object->mPreviewCallback->setUsage((BufferUsage)usage));
++    // nicki: the legacy HAL1 camera blob passes 32-bit gralloc usage flags as a
++    // signed int (e.g. 0xc0020900, high bit set). Casting that straight to the
++    // 64-bit BufferUsage enum sign-extends it to 0xffffffffc0020900, and Oreo's
++    // gralloc mapper rejects the bogus upper 32 bits ("invalid usage bits
++    // 0xffffffff00000000") -> preview buffer allocation fails -> no live preview.
++    // Zero-extend via uint32_t so only the real low 32 usage bits survive.
++    return getStatusT(object->mPreviewCallback->setUsage(
++            (BufferUsage)(uint32_t)usage));
+ }
+ 
+ int CameraDevice::sSetSwapInterval(struct preview_stream_ops *w, int interval) {
+@@ -362,7 +423,20 @@ CameraDevice::CameraHeapMemory::~CameraHeapMemory() {
+ camera_memory_t* CameraDevice::sGetMemory(int fd, size_t buf_size, uint_t num_bufs, void *user) {
+     ALOGV("%s", __FUNCTION__);
+     CameraDevice* object = static_cast<CameraDevice*>(user);
+-    if (object->mDeviceCallback == nullptr) {
++    // nicki: the legacy snapshot stream passes a bogus cookie here (not the
++    // CameraDevice* we handed to set_callbacks), so dereferencing `object`
++    // SIGSEGVs (sGetMemory+157, fault 0x500). Validate the cookie against the
++    // single currently-open device and recover when it doesn't match. Only one
++    // HAL1 camera is open at a time, so sOpenDevice is unambiguous.
++    {
++        Mutex::Autolock _sl(sOpenDeviceLock);
++        if (object != sOpenDevice) {
++            ALOGW("%s: HAL passed cookie %p != open device %p; recovering",
++                    __FUNCTION__, object, sOpenDevice);
++            object = sOpenDevice;
++        }
++    }
++    if (object == nullptr || object->mDeviceCallback == nullptr) {
+         ALOGE("%s: camera HAL request memory while camera is not opened!", __FUNCTION__);
+         return nullptr;
+     }
+@@ -375,10 +449,32 @@ camera_memory_t* CameraDevice::sGetMemory(int fd, size_t buf_size, uint_t num_bu
+     }
+     mem->incStrong(mem);
+     hidl_handle hidlHandle = mem->mHidlHandle;
+-    MemoryId id = object->mDeviceCallback->registerMemory(hidlHandle, buf_size, num_bufs);
++    // nicki: registerMemory's HIDL round-trip to the client (CameraHardwareInterface)
++    // fails transport for the legacy HAL1 path. For preview DISPLAY buffers the
++    // locally-mmapped CameraHeapMemory below is everything the blob needs (frames
++    // reach the Surface via enqueue_buffer, not via dataCallback), so don't let a
++    // failed registerMemory abort the whole preview. Fall back to a local id.
++    MemoryId id;
++    bool registered;
++    auto ret = object->mDeviceCallback->registerMemory(hidlHandle, buf_size, num_bufs);
++    if (ret.isOk()) {
++        id = ret;
++        registered = true;
++    } else {
++        static uint32_t sLocalMemId = 0x40000000u;
++        id = sLocalMemId++;
++        registered = false;
++        ALOGW("%s: registerMemory transport failed (fd=%d size=%zu num=%u): %s;"
++              " local id %u (not tracked)", __FUNCTION__, fd, buf_size, num_bufs,
++                ret.description().c_str(), id);
++    }
+     mem->handle.mId = id;
+ 
+-    {
++    // nicki: only track in mMemoryMap when the client actually registered it.
++    // The map is consulted by the data-callback path (sDataCb) which display
++    // buffers never hit, so skipping it for the local-id fallback is safe and
++    // avoids touching the map for buffers the client doesn't know about.
++    if (registered) {
+         Mutex::Autolock _l(object->mMemoryMapLock);
+         if (object->mMemoryMap.count(id) != 0) {
+             ALOGE("%s: duplicate MemoryId %d returned by client!", __FUNCTION__, id);
+@@ -401,8 +497,11 @@ void CameraDevice::sPutMemory(camera_memory_t *data) {
+     if (device->mDeviceCallback == nullptr) {
+         ALOGE("%s: camera HAL return memory while camera is not opened!", __FUNCTION__);
+     }
+-    device->mDeviceCallback->unregisterMemory(mem->handle.mId);
+-    {
++    // nicki: local-id buffers (>= 0x40000000) were never registered with the
++    // client nor put in mMemoryMap (see sGetMemory), so skip the client
++    // round-trip and map erase for them.
++    if (mem->handle.mId < 0x40000000u) {
++        device->mDeviceCallback->unregisterMemory(mem->handle.mId);
+         Mutex::Autolock _l(device->mMemoryMapLock);
+         device->mMemoryMap.erase(mem->handle.mId);
+     }
+@@ -722,6 +821,12 @@ Return<Status> CameraDevice::open(const sp<ICameraDeviceCallback>& callback) {
+                 sNotifyCb, sDataCb, sDataCbTimestamp, sGetMemory, this);
+     }
+ 
++    // nicki: register as the single currently-open HAL1 device (see sGetMemory).
++    {
++        Mutex::Autolock _sl(sOpenDeviceLock);
++        sOpenDevice = this;
++    }
++
+     return getHidlStatus(rc);
+ }
+ 
+@@ -1054,6 +1159,13 @@ Return<void> CameraDevice::close() {
+ 
+ void CameraDevice::closeLocked() {
+     ALOGI("Closing camera %s", mCameraId.c_str());
++    // nicki: stop being the recovery target for sGetMemory once closed.
++    {
++        Mutex::Autolock _sl(sOpenDeviceLock);
++        if (sOpenDevice == this) {
++            sOpenDevice = nullptr;
++        }
++    }
+     if(mDevice) {
+         int rc = mDevice->common.close(&mDevice->common);
+         if (rc != OK) {
+diff --git a/camera/device/1.0/default/CameraDevice_1_0.h b/camera/device/1.0/default/CameraDevice_1_0.h
+index 2b35a730..f53133f6 100644
+--- a/camera/device/1.0/default/CameraDevice_1_0.h
++++ b/camera/device/1.0/default/CameraDevice_1_0.h
+@@ -156,6 +156,10 @@ private:
+         sp<ICameraDevicePreviewCallback> mPreviewCallback = nullptr;
+         std::unordered_map<uint64_t, buffer_handle_t> mCirculatingBuffers;
+         std::unordered_map<buffer_handle_t*, uint64_t> mBufferIdMap;
++        // nicki: preview geometry cached from set_buffers_geometry, used to
++        // gralloc-lock dequeued buffers so the legacy blob sees a mapped ->base.
++        uint32_t mPreviewWidth = 0;
++        uint32_t mPreviewHeight = 0;
+     } mHalPreviewWindow;
+ 
+     // gating access to mDevice, mInitFail, mDisconnected
+@@ -167,6 +171,16 @@ private:
+ 
+     static HandleImporter sHandleImporter;
+ 
++    // nicki: the legacy HAL1 snapshot stream (QCameraStream_SnapshotMain) calls
++    // get_memory with a BOGUS cookie (not the CameraDevice* we passed to
++    // set_callbacks) -> static_cast<CameraDevice*>(user) in sGetMemory derefs
++    // garbage and SIGSEGVs. Only ONE HAL1 camera is ever open at a time
++    // (CameraClient is strictly single-open), so we track the single currently-
++    // open instance and recover the real device from it whenever the cookie
++    // handed back doesn't match. Set in open(), cleared in closeLocked().
++    static Mutex sOpenDeviceLock;
++    static CameraDevice* sOpenDevice;
++
+     const SortedVector<std::pair<std::string, std::string>>& mCameraDeviceNames;
+ 
+     sp<ICameraDeviceCallback> mDeviceCallback = nullptr;
