@@ -1,0 +1,22 @@
+diff --git a/src/com/android/bluetooth/btservice/AdapterState.java b/src/com/android/bluetooth/btservice/AdapterState.java
+index 94feef24..5c4e9879 100644
+--- a/src/com/android/bluetooth/btservice/AdapterState.java
++++ b/src/com/android/bluetooth/btservice/AdapterState.java
+@@ -70,9 +70,15 @@ final class AdapterState extends StateMachine {
+     static final int BLE_STOP_TIMEOUT = 11;
+     static final int BLE_START_TIMEOUT = 12;
+ 
+-    static final int BLE_START_TIMEOUT_DELAY = 4000;
++    // nicki: the WCN (riva) SMD transport bring-up on this SoC takes ~5.5s per
++    // enable cycle (hci_qcomm_init FW download + userial/IBS handshake), which
++    // is slower than the stock 4s BLE/BREDR start timeouts -> the stack reached
++    // "Controller ready" / btif_enable_bluetooth_evt status 0 at ~+5.2s but the
++    // framework had already fired BLE_START_TIMEOUT, torn it down and retried,
++    // looping forever. Give the slow controller enough head room to come up.
++    static final int BLE_START_TIMEOUT_DELAY = 8000;
+     static final int BLE_STOP_TIMEOUT_DELAY = 1000;
+-    static final int BREDR_START_TIMEOUT_DELAY = 4000;
++    static final int BREDR_START_TIMEOUT_DELAY = 8000;
+     static final int BREDR_STOP_TIMEOUT_DELAY = 4000;
+ 
+     private AdapterService mAdapterService;

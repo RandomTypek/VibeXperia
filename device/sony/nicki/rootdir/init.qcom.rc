@@ -255,6 +255,18 @@ on property:bluetooth.hciattach=true
 on property:bluetooth.hciattach=false
     setprop bluetooth.status off
 
+# nicki: the Pie-era libbt-vendor blob sets the vendor-namespaced property
+# vendor.bluetooth.hciattach (not the legacy bluetooth.hciattach), so the
+# hci_attach service never fired and BT stalled at BLE_TURNING_ON /
+# BLE_START_TIMEOUT (hci_qcomm_init never ran -> no SMD attach -> placeholder
+# BD_ADDR, controller never comes ready). Mirror the trigger onto the vendor
+# property so the SMD attach runs on every enable cycle.
+on property:vendor.bluetooth.hciattach=true
+    start hci_attach
+
+on property:vendor.bluetooth.hciattach=false
+    setprop bluetooth.status off
+
 # QMUX must be in multiple groups to support external process connections
 service qmuxd /system/bin/qmuxd
     class main
