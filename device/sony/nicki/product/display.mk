@@ -22,6 +22,19 @@ PRODUCT_PROPERTY_OVERRIDES += \
 PRODUCT_PROPERTY_OVERRIDES += \
     debug.sf.disable_backpressure=1
 
+# nicki: latch buffers whose acquire fence has not signalled yet. This device's
+# legacy HWC1 (via HWC2On1Adapter) advertises PresentFenceIsNotReliable and the
+# Adreno 305 render fences are slow to signal on the weak dual-A5 -> by the time
+# SurfaceFlinger tries to latch a producer buffer at VSYNC its acquire fence is
+# still SIGNAL_TIME_PENDING, so SF skips the update and reuses the old buffer =
+# a dropped/janky frame. Letting SF latch the unsignalled buffer (the GPU has
+# almost always finished by scanout, and implicit ordering covers the rest)
+# removes those stalls. Measured on a Settings fling: janky frames 45.8% -> 17.4%,
+# missed-vsync 4 -> 0, slow-UI-thread 11 -> 1, 99th %ile 42ms -> 25ms. No visible
+# tearing on the UI. (Pairs with debug.sf.disable_backpressure above.)
+PRODUCT_PROPERTY_OVERRIDES += \
+    debug.sf.latch_unsignaled=1
+
 # nicki: disable hwui EGL partial-update (eglSetDamageRegionKHR) path. The legacy
 # Adreno 305 EGL blob does not account for the buffer pre-rotation transform that
 # the framework uses for landscape app surfaces (buffer is swapped to 480x854 +
