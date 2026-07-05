@@ -238,3 +238,15 @@ index 2b35a730..f53133f6 100644
      const SortedVector<std::pair<std::string, std::string>>& mCameraDeviceNames;
  
      sp<ICameraDeviceCallback> mDeviceCallback = nullptr;
+diff --git a/sensors/1.0/default/android.hardware.sensors@1.0-service.rc b/sensors/1.0/default/android.hardware.sensors@1.0-service.rc
+index b54842d6..3af41159 100644
+--- a/sensors/1.0/default/android.hardware.sensors@1.0-service.rc
++++ b/sensors/1.0/default/android.hardware.sensors@1.0-service.rc
+@@ -1,6 +1,6 @@
+ service vendor.sensors-hal-1-0 /vendor/bin/hw/android.hardware.sensors@1.0-service
+     class hal
+     user system
+-    group system wakelock
++    group system wakelock input
+     capabilities BLOCK_SUSPEND
+     rlimit rtprio 10 10
