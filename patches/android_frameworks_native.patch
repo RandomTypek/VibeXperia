@@ -19,10 +19,10 @@ index 115a983bc..dfd482c80 100644
  
  // ---------------------------------------------------------------------------
 diff --git a/services/surfaceflinger/DisplayHardware/FramebufferSurface.cpp b/services/surfaceflinger/DisplayHardware/FramebufferSurface.cpp
-index e6d783434..412dc69e5 100644
+index e6d783434..68324cfb8 100644
 --- a/services/surfaceflinger/DisplayHardware/FramebufferSurface.cpp
 +++ b/services/surfaceflinger/DisplayHardware/FramebufferSurface.cpp
-@@ -161,8 +161,24 @@ void FramebufferSurface::freeBufferLocked(int slotIndex) {
+@@ -161,8 +161,29 @@ void FramebufferSurface::freeBufferLocked(int slotIndex) {
  
  void FramebufferSurface::onFrameCommitted() {
      if (mHasPendingRelease) {
@@ -35,6 +35,11 @@ index e6d783434..412dc69e5 100644
 +        // hard-freezes the UI during any sustained composition (spinner popup,
 +        // notification shade, list scroll; DequeueBufferDuration=9.9s). Skip the
 +        // unreliable fence so the FB buffer is released immediately (NO_FENCE).
++        // NOTE (2026-07-04): honouring the fence here was retried after keeping HW
++        // vsync permanently enabled (which makes the present fence's --latency
++        // timestamps advance) -- but it STILL froze SystemUI under sustained
++        // composition, so the present fence is genuinely unusable as an FB release
++        // gate on this device, not merely a vsync-armed artifact. Keep NO_FENCE.
 +        // This is the SF-output sibling of the disable_backpressure (frameMissed)
 +        // and postFramebuffer per-layer release-fence fixes -- same unreliable-
 +        // present-fence root cause (task #28). The vendor HWC's blocking FB pan
@@ -49,39 +54,61 @@ index e6d783434..412dc69e5 100644
                      mPreviousBuffer, fence);
              ALOGE_IF(result != NO_ERROR, "onFrameCommitted: failed to add the"
 diff --git a/services/surfaceflinger/SurfaceFlinger.cpp b/services/surfaceflinger/SurfaceFlinger.cpp
-index f513b9fd7..b7cc3a78f 100644
+index f513b9fd7..220714111 100644
 --- a/services/surfaceflinger/SurfaceFlinger.cpp
 +++ b/services/surfaceflinger/SurfaceFlinger.cpp
-@@ -2210,6 +2210,23 @@ void SurfaceFlinger::postFramebuffer()
+@@ -1428,7 +1428,13 @@ void SurfaceFlinger::onVsyncReceived(int32_t sequenceId,
+         }
+     }
+ 
+-    if (needsHwVsync) {
++    // nicki/msm8960: keep HW vsync permanently enabled when the present fence is
++    // unreliable -- addResyncSample() relocks DispSync to the real panel vsync
++    // every refresh, and (critically) it keeps the mdp4 vsync IRQ armed so the
++    // retire fence backing the per-layer release fences actually advances.
++    if (needsHwVsync ||
++            getHwComposer().hasCapability(
++                    HWC2::Capability::PresentFenceIsNotReliable)) {
+         enableHardwareVsync();
+     } else {
+         disableHardwareVsync(false);
+@@ -1839,7 +1845,13 @@ void SurfaceFlinger::postComposition(nsecs_t refreshStartTime)
+         }
+     });
+ 
+-    if (presentFenceTime->isValid()) {
++    // nicki/msm8960: do NOT feed this HWC's unreliable present fence into DispSync
++    // (it corrupts the vsync model and makes SF disableHardwareVsync). Keeping HW
++    // vsync always on (see onVsyncReceived) is also what makes the mdp4 retire
++    // fence advance so the per-layer release fences in postFramebuffer signal.
++    if (presentFenceTime->isValid() &&
++            !getHwComposer().hasCapability(
++                    HWC2::Capability::PresentFenceIsNotReliable)) {
+         if (mPrimaryDispSync.addPresentFence(presentFenceTime)) {
+             enableHardwareVsync();
+         } else {
+@@ -2210,6 +2222,24 @@ void SurfaceFlinger::postFramebuffer()
          }
          displayDevice->onSwapBuffersCompleted();
          displayDevice->makeCurrent();
-+        // nicki/msm8960: a HWC1-via-HWC2On1Adapter that reports
-+        // PresentFenceIsNotReliable also yields UNRELIABLE per-layer release
-+        // fences from getLayerReleaseFence() -- they derive from the same
-+        // retire fence that never signals. Handing that fence to the producer
-+        // makes its next dequeueBuffer() block ~10s waiting for a buffer that is
-+        // never released (DequeueBufferDuration=9.9s), hard-freezing any
-+        // ANIMATING surface (timezone spinner popup, notification shade) even
-+        // though debug.sf.disable_backpressure=1 keeps steady-state compositing
-+        // going -- a static/non-cycling surface (keyguard) never cycles buffers
-+        // so it hid this. Treat DEVICE-composited buffers as immediately
-+        // reusable (NO_FENCE) when the HWC fence is unreliable; the CLIENT-
-+        // composited path below still merges the client-target acquire fence,
-+        // which is a real GPU (EGL) fence and IS reliable, so correctness there
-+        // is preserved. Sibling of the frameMissed/disable_backpressure fix for
-+        // the INVALIDATE path -- same unreliable-fence root cause.
-+        const bool hwcReleaseFenceUnreliable = getHwComposer().hasCapability(
-+                HWC2::Capability::PresentFenceIsNotReliable);
++        // nicki/msm8960: HONOUR the per-layer release fence from
++        // getLayerReleaseFence() on this HWC1-via-HWC2On1Adapter. An earlier
++        // bring-up pass forced NO_FENCE here (immediate release) because on a HWC
++        // that reports PresentFenceIsNotReliable the per-layer release fence
++        // derives from the mdp4 retire fence, which never signalled -- handing it
++        // to the producer made the next dequeueBuffer() block ~10s
++        // (DequeueBufferDuration=9.9s) and hard-froze any animating surface. But
++        // that stall was a *side effect of HW vsync being disabled*: the retire
++        // fence only advances while the panel vsync IRQ is armed. SurfaceFlinger
++        // now keeps HW vsync permanently enabled on this HWC
++        // (onVsyncReceived/postComposition, guarded by PresentFenceIsNotReliable),
++        // so the fence signals ~2-3 refreshes late and the triple-buffered app
++        // producers absorb that latency without starving. Gating the buffer
++        // release on the fence (release only AFTER the MDP has scanned the buffer
++        // out) stops the producer from overwriting a buffer the MDP overlay is
++        // still displaying -- which was the residual per-layer FLICKER. The
++        // CLIENT-composited path below additionally merges the client-target
++        // acquire fence, a real reliable EGL fence.
          for (auto& layer : displayDevice->getVisibleLayersSortedByZ()) {
              sp<Fence> releaseFence = Fence::NO_FENCE;
- 
-@@ -2217,7 +2234,7 @@ void SurfaceFlinger::postFramebuffer()
-             // by HWC only when the release fence from this frame (if any) is
-             // signaled.  Always get the release fence from HWC first.
-             auto hwcLayer = layer->getHwcLayer(hwcId);
--            if (hwcId >= 0) {
-+            if (hwcId >= 0 && !hwcReleaseFenceUnreliable) {
-                 releaseFence = getBE().mHwc->getLayerReleaseFence(hwcId, hwcLayer);
-             }
  
