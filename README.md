@@ -27,7 +27,8 @@ complete) 15.1 port.
 | Audio | ✅ |
 | Hardware video decode (H.264 — local files + browser) | ✅ |
 | NFC (chip enables, HCI init OK; tag R/W untested) | ✅ |
-| Telephony / RIL (insert a SIM) | ✅ |
+| Telephony / RIL — voice, SMS, registration (insert a SIM) | ✅ |
+| Mobile data (cellular) | ⚠️ in progress — netmgrd crash + libril parse fixed; blocked in `dsi_netctrl` link‑map (see below) |
 | Bluetooth (enable, scan, real Sony BD_ADDR) | ✅ |
 | Performance tuning (zram/swappiness, low‑RAM) | ✅ |
 | **Camera** | ⚠️ enumerate + open + **live preview** work; **photo save hangs** (blob JPEG‑encode deadlock) |
@@ -83,6 +84,25 @@ Composer 2.1). The 16.0‑specific bring‑up:
 - **rild** — a stale `libril.so` blob shadowed the CAF one that defines
   `ril_service_name` (removed in `vendor/`); also `O_TMPFILE` + legacy
   `/dev/android_adb` adbd + recovery‑wipe + audio kernel‑header fixes.
+
+- **Mobile data (in progress)** — voice/SMS/registration work, but PDP activation
+  never succeeded on any nicki LineageOS build. Root‑caused with an on‑device
+  `strace` of the (diag‑only‑logging) QMI data stack:
+  1. `libril` (`ril_service.cpp`) rejected the qcril's 45‑byte
+     `SetupDataCallResult` (a `v11` struct + 1 trailing byte) via a strict
+     `responseLen % sizeof(...) == 0` check → `INVALID_RESPONSE` → framework marks
+     "all APNs permanently failed" and never retries. Relaxed to `>= sizeof(vN)`.
+     See `patches/android_hardware_ril-caf.patch`.
+  2. `netmgrd` **SIGABRTs at boot**: its compiled‑in physical‑link list includes an
+     SDIO transport (`rmnet_sdio0`) that this BAM‑only target (`CONFIG_MSM_RMNET_BAM=y`,
+     no rmnet_sdio) never creates → `netmgr_kif_reset_link: cannot init iface[8]` →
+     crash‑loop → `dsi_init` never gets the netmgr‑ready handshake →
+     `dsi_get_data_srvc_hndl()` returns NULL → every PDP fails. A boot‑time oneshot
+     (`init.nicki.rmnet_stub.sh`, `product/data.mk`) creates harmless dummy
+     `rmnet_sdio0..7` before netmgrd so it stays up and the handshake completes.
+  3. **Remaining blocker**: even with netmgrd healthy and the handshake done,
+     `dsi_get_data_srvc_hndl` still returns NULL — the dsi link‑map for the real
+     BAM `rmnet0..7` links isn't populated. Under investigation.
 
 Full blow‑by‑blow in [`16.0-BUILD-NOTES.md`](16.0-BUILD-NOTES.md).
 

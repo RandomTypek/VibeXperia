@@ -1,0 +1,37 @@
+diff --git a/libril/ril_service.cpp b/libril/ril_service.cpp
+index 2e57bb5..3d075e8 100644
+--- a/libril/ril_service.cpp
++++ b/libril/ril_service.cpp
+@@ -4067,9 +4067,14 @@ int radio::setupDataCallResponse(int slotId,
+ 
+         SetupDataCallResult result = {};
+ 
+-        if (response == NULL || (responseLen % sizeof(RIL_Data_Call_Response_v11) != 0
+-                && responseLen % sizeof(RIL_Data_Call_Response_v9) != 0
+-                && responseLen % sizeof(RIL_Data_Call_Response_v6) != 0)) {
++        // nicki/qcril quirk: the QCOM RIL returns a single RIL_Data_Call_Response_v11
++        // with one extra trailing byte (responseLen == 45, sizeof(v11) == 44). The
++        // upstream strict "responseLen % sizeof(...) == 0" check rejects that as an
++        // INVALID_RESPONSE, which the framework treats as a permanent HAL error
++        // ("All APNs permanently failed") and never retries. Accept any buffer at
++        // least as large as a given struct version and parse its leading fields,
++        // tolerating trailing padding. (setupDataCall always returns a single call.)
++        if (response == NULL || responseLen < sizeof(RIL_Data_Call_Response_v6)) {
+             if (response != NULL) {
+                 RLOGE("setupDataCallResponse: Invalid response");
+                 if (e == RIL_E_SUCCESS) responseInfo.error = RadioError::INVALID_RESPONSE;
+@@ -4081,11 +4086,11 @@ int radio::setupDataCallResponse(int slotId,
+             result.dnses = hidl_string();
+             result.gateways = hidl_string();
+             result.pcscf = hidl_string();
+-        } else if ((responseLen % sizeof(RIL_Data_Call_Response_v11)) == 0) {
++        } else if (responseLen >= sizeof(RIL_Data_Call_Response_v11)) {
+             convertRilDataCallToHal((RIL_Data_Call_Response_v11 *) response, result);
+-        } else if ((responseLen % sizeof(RIL_Data_Call_Response_v9)) == 0) {
++        } else if (responseLen >= sizeof(RIL_Data_Call_Response_v9)) {
+             convertRilDataCallToHal((RIL_Data_Call_Response_v9 *) response, result);
+-        } else if ((responseLen % sizeof(RIL_Data_Call_Response_v6)) == 0) {
++        } else {
+             convertRilDataCallToHal((RIL_Data_Call_Response_v6 *) response, result);
+         }
+ 
