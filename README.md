@@ -25,7 +25,7 @@ complete) 15.1 port.
 | Auto‑rotate | ✅ |
 | Audio | ✅ |
 | Hardware video decode (H.264 — local files + browser) | ✅ |
-| NFC | ✅ |
+| NFC (chip enables, HCI init OK; tag R/W untested) | ✅ |
 | Telephony / RIL (insert a SIM) | ✅ |
 | Bluetooth (enable, scan, real Sony BD_ADDR) | ✅ |
 | Performance tuning (zram/swappiness, low‑RAM) | ✅ |
@@ -74,6 +74,11 @@ Composer 2.1). The 16.0‑specific bring‑up:
   `NL80211_RATE_INFO_BITRATE`; Pie wificond required the 32‑bit variant and
   failed the whole signal poll → RSSI −127 → **no Wi‑Fi signal bars**. Added the
   fallback. See `patches/android_system_connectivity_wificond.patch`.
+- **NFC** — `com.android.nfc` crash‑looped (`phHciNfc_Response_Timeout` → abort):
+  libnfc `dlopen`ed its firmware from `/vendor/firmware/`, which the NFC app's
+  linker namespace forbids, so the FW download was skipped and HCI init timed out.
+  Repointed `FW_PATH` to `/vendor/lib/` where the blob actually lives. See
+  `patches/android_external_libnfc-nxp.patch`.
 - **rild** — a stale `libril.so` blob shadowed the CAF one that defines
   `ril_service_name` (removed in `vendor/`); also `O_TMPFILE` + legacy
   `/dev/android_adb` adbd + recovery‑wipe + audio kernel‑header fixes.
