@@ -19,14 +19,17 @@ complete) 15.1 port.
 | Boot to launcher (Trebuchet), Settings, touch, brightness | ✅ |
 | ADB (recovery **and** booted) + USB/PC charging | ✅ |
 | Display + compositing (bootanim, keyguard, **popups / notification shade / list scroll**) | ✅ |
+| Display free of tearing/flicker (full MDP hardware composition) | ✅ |
 | Wi‑Fi (assoc, DNS, autoconnect, **signal bars**) | ✅ |
 | Sensors 5/5 (accel, prox, mag, orient, light + fused rotation) | ✅ |
+| Auto‑rotate | ✅ |
 | Audio | ✅ |
+| Hardware video decode (H.264 — local files + browser) | ✅ |
 | NFC | ✅ |
 | Telephony / RIL (insert a SIM) | ✅ |
+| Bluetooth (enable, scan, real Sony BD_ADDR) | ✅ |
 | Performance tuning (zram/swappiness, low‑RAM) | ✅ |
-| **Bluetooth** | ⚠️ HAL up, radio doesn't (chip rejects a controller‑init cmd) |
-| **Camera** | ⚠️ 0 devices (HAL1 fixes from 15.1 not yet ported) |
+| **Camera** | ⚠️ enumerate + open + **live preview** work; **photo save hangs** (blob JPEG‑encode deadlock) |
 | SELinux enforcing | ⚠️ permissive (parked) |
 
 ## Highlights of what it took (Oreo → Pie on a 3.4 kernel)
@@ -35,13 +38,35 @@ Pie carries the 15.1 kernel/graphics work (binder SG/multidev, alarmtimer,
 Composer 2.1). The 16.0‑specific bring‑up:
 
 - **SurfaceFlinger, unreliable HWC fences** — the msm8960 HWC1‑via‑`HWC2On1Adapter`
-  reports `PresentFenceIsNotReliable`. Two Pie‑only stalls followed:
+  reports `PresentFenceIsNotReliable`, and almost every Pie display bug on this
+  device traces back to how SF handles that. Three stalls, in the order they
+  appeared:
   1. `frameMissed` back‑pressure skipped compositing forever → black boot.
      Fixed with `debug.sf.disable_backpressure=1`.
   2. `FramebufferSurface` released its own FB buffer with that unreliable present
      fence → SF stalled ~10 s (`msm_fb_pan_idle`) on any animating surface
      (popup, shade, scroll). Fixed by dropping the fence (`NO_FENCE`) when the
-     capability is set. See `patches/android_frameworks_native.patch`.
+     capability is set.
+  3. …but the same `NO_FENCE` reflex had also been applied to the **per‑layer**
+     release fence in `postFramebuffer`, which meant producers could overwrite a
+     buffer the MDP overlay was still scanning out — a persistent **flicker** on
+     slow scroll. This looked unfixable for a long time (honouring the fence
+     froze the device) because the fence was *starved*, not broken: SF fed the
+     unreliable present fence to `DispSync`, which corrupted the vsync model and
+     disabled HW vsync — and the mdp4 **retire** fence that backs
+     `getLayerReleaseFence()` only advances while the panel vsync IRQ is armed.
+     Fixed by doing all three together, each guarded on the capability: skip
+     `addPresentFence`, keep HW vsync permanently enabled, and honour the layer
+     release fence again. The fence then signals ~2–3 refreshes late, which the
+     triple‑buffered producers absorb.
+
+  See `patches/android_frameworks_native.patch`.
+- **Hardware video decode** — Pie's `Gralloc2` mapper validates buffer usage bits
+  and rejected the QCOM‑private ones (`PRIVATE_UNCACHED`, `PRIVATE_IOMMU_HEAP`)
+  the vidc decoder sets on its tiled‑NV12 output → every allocation failed and HW
+  decode was dead (Oreo's direct‑gralloc path had no such validation). Whitelisted
+  via `TARGET_ADDITIONAL_GRALLOC_10_USAGE_BITS`. (VP8/VP9/WebM stay software —
+  the 720p vidc core has no VP8/VP9 block at all.)
 - **kernel `commoncap`** — ambient caps were zeroed on a non‑root exec, so init’s
   `capabilities` line never reached HALs (`android.hardware.wifi@1.0-service`
   couldn’t get `NET_ADMIN` → no Wi‑Fi). Fixed in the kernel repo.
