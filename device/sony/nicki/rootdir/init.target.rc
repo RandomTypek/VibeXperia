@@ -39,9 +39,6 @@ on init
 on fs
     mount_all fstab.qcom
     swapon_all fstab.qcom
-    # nicki 16.0 boot tracer: /cache is eMMC (survives force-poweroff, unlike the
-    # RAM console). Marker here proves mount_all completed + /cache is mounted.
-    write /cache/nboot_fs_mounted 1
     mount ext4 /dev/block/platform/msm_sdcc.1/by-name/persist /persist nosuid nodev barrier=1
     restorecon_recursive /persist
 
@@ -56,41 +53,22 @@ on fs
     # TA support
     class_start trimarea
     start tad_static
-    # nicki tracer: bracket the synchronous taimport exec — if the device hangs
-    # in 'on fs', a missing nboot_fs_ta_done (with nboot_fs_mounted present)
-    # pins the hang to the Sony TA block below.
-    write /cache/nboot_fs_pre_taimport 1
     exec /system/bin/taimport
-    write /cache/nboot_fs_ta_done 1
 
     start ta_qmi_service
 
 on post-fs
     mkdir /dev/socket/suntory 0755 system system
-    write /cache/nboot_postfs 1
 
 on boot
    start qcamerasvr
-    write /cache/nboot_boot 1
-    # nicki 16.0 DIAGNOSTIC: bring adb up at 'on boot' regardless of
-    # UsbDeviceManager (which lives late in system_server and never runs because
-    # the framework boot stalls). adbd is 'class core' but 'disabled', so it is
-    # only started by the sys.usb.config=adb trigger in init.usb.rc (which writes
-    # functions=adb, enables the legacy android_usb gadget, and 'start adbd').
-    # Setting the prop here fires that canonical handler → live adb/logcat during
-    # the stall. REMOVE once the boot stall is fixed.
-    setprop sys.usb.config adb
 
     # nicki performance tuning (MSM8227, dual Cortex-A5, ~880 MB RAM + lz4 zRAM):
     # swappiness 100 -- lean hard on the cheap lz4 zRAM so more file-backed pages
-    # stay cached (fewer slow eMMC re-reads) on this RAM-starved device.
-    # MUST stay in 'on boot' (matches 15.1): it was previously mis-nested under
-    # the diagnostic 'on property:sys.usb.config=none' block below, which never
-    # fires once adb is durable (settings adb_enabled=1 keeps usb=adb) -> the
-    # writes never ran, swappiness stayed at the default 60 and the zRAM sat
-    # UNUSED (0 KB), so under memory pressure the kernel evicted+re-read code
-    # pages from slow eMMC (page-cache thrash, ~80% iowait) and the UI froze
-    # (e.g. opening the SetupWizard timezone picker).
+    # stay cached (fewer slow eMMC re-reads) on this RAM-starved device. Must be
+    # in 'on boot' (matches 15.1); if it doesn't run, swappiness stays at the
+    # default 60, the zRAM sits UNUSED, and under memory pressure the kernel
+    # thrashes the page cache (~80% iowait) and the UI freezes.
     write /proc/sys/vm/swappiness 100
 
     # eMMC is slow: with the 20%/10% defaults the kernel lets ~175 MB of dirty
@@ -108,13 +86,7 @@ on boot
     chmod 0600 /sys/class/led/fih_led/control
     chmod 0600 /sys/class/led/fih_led/info
 
-# nicki 16.0 DIAGNOSTIC: keep adb alive across boot. UsbDeviceManager (late in
-# system_server) drops USB to "none" on a fresh /data (USB-debugging off in
-# Settings), killing adb ~75s in. Re-assert adb whenever it goes to none so we
-# retain persistent adb/logcat for bring-up. REMOVE for release.
-on property:sys.usb.config=none
-    setprop sys.usb.config adb
-
+on boot
     # Add Sensors file node
     chown system system /sys/class/input/input3/bandwidth
     chown system system /sys/class/input/input3/debug
@@ -257,7 +229,6 @@ on property:sys.usb.config=none
     restorecon /sys/class/graphics/fb0/kcal
 
 on post-fs-data
-   write /cache/nboot_postfsdata 1
    mkdir /tombstones/modem 0771 system system
    mkdir /tombstones/lpass 0771 system system
    mkdir /tombstones/wcnss 0771 system system

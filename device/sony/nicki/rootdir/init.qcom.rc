@@ -314,7 +314,6 @@ on property:crypto.driver.load=0
      exec /system/bin/rmmod qce.ko
 
 on property:sys.boot_completed=1
-    write /cache/nboot_completed 1
     # nicki: deadline I/O scheduler (lighter on the dual-A5 than the kernel-default
     # bfq). Set here rather than 'on boot' because the eMMC request_queue elevator
     # isn't reliably switchable that early -- the 'on boot' write didn't stick.

@@ -5,9 +5,10 @@ Xperia M (codename **nicki**, Qualcomm MSM8227, dual Cortex‑A5, Adreno 305,
 ~880 MB RAM, Linux 3.4 kernel). Forward‑ported from the working
 [15.1 port](https://github.com/RandomTypek/VibeXperia/tree/main).
 
-> Hobby port, **still in bring‑up**. SELinux is **permissive**. The device tree
-> still carries boot‑bring‑up diagnostics (forced‑adb, `/cache` boot tracers in
-> `init.target.rc`) that should be stripped before any "release" build.
+> Hobby port, **still in bring‑up**. SELinux is **permissive** (parked). The
+> boot‑bring‑up diagnostics (forced‑adb + `/cache` boot tracers) have been
+> stripped from `init.target.rc`/`init.qcom.rc`; adb now follows the normal
+> Settings → USB‑debugging path.
 
 This is the **`lineage-16.0`** branch. The **`main`** branch is the (more
 complete) 15.1 port.
