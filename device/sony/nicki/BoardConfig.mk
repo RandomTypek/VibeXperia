@@ -31,3 +31,10 @@ include $(DEVICE_PATH)/board/*.mk
 
 # Board device vendor
 -include vendor/sony/nicki/BoardConfigVendor.mk
+
+# nicki: disable the liblights HAL gamma (pow 2.2). Pie's brightness slider
+# already applies its own perceptual gamma (BrightnessController convertGammaToLinear),
+# so the HAL gamma double-corrects -> bottom ~half of the slider maps to minimum
+# backlight (dead zone). Oreo/15.1 had a LINEAR slider so the single HAL gamma was
+# correct there; on Pie it is redundant. Leaves the framework slider as the sole gamma.
+TARGET_DISPLAY_GAMMA_DISABLED := true
