@@ -1,0 +1,38 @@
+diff --git a/core/java/android/animation/ValueAnimator.java b/core/java/android/animation/ValueAnimator.java
+index cc95eb6f4ea..4fc1924f554 100644
+--- a/core/java/android/animation/ValueAnimator.java
++++ b/core/java/android/animation/ValueAnimator.java
+@@ -75,7 +75,11 @@ public class ValueAnimator extends Animator implements AnimationHandler.Animatio
+     /**
+      * Internal constants
+      */
+-    private static float sDurationScale = 1.0f;
++    // nicki: default animator duration scale OFF (0) -- fallback when
++    // Settings.Global.ANIMATOR_DURATION_SCALE is absent (fresh install); the
++    // framework never seeds that key, so this is the only place it defaults.
++    // User-overridable via Developer options.
++    private static float sDurationScale = 0.0f;
+ 
+     /**
+      * Internal variables
+diff --git a/services/core/java/com/android/server/wm/WindowManagerService.java b/services/core/java/com/android/server/wm/WindowManagerService.java
+index 28aff1efa9f..6568812504d 100644
+--- a/services/core/java/com/android/server/wm/WindowManagerService.java
++++ b/services/core/java/com/android/server/wm/WindowManagerService.java
+@@ -724,9 +724,13 @@ public class WindowManagerService extends IWindowManager.Stub
+     PowerManager mPowerManager;
+     PowerManagerInternal mPowerManagerInternal;
+ 
+-    private float mWindowAnimationScaleSetting = 1.0f;
+-    private float mTransitionAnimationScaleSetting = 1.0f;
+-    private float mAnimatorDurationScaleSetting = 1.0f;
++    // nicki: default all animations OFF (0) on this RAM/CPU-starved device -- these
++    // are the fallbacks used when the Settings.Global.*_ANIMATION_SCALE keys are
++    // absent (i.e. a fresh install), so the UI ships snappy out of the box. Still
++    // fully user-overridable via Developer options > Animation scales.
++    private float mWindowAnimationScaleSetting = 0.0f;
++    private float mTransitionAnimationScaleSetting = 0.0f;
++    private float mAnimatorDurationScaleSetting = 0.0f;
+     private boolean mAnimationsDisabled = false;
+ 
+     final InputManagerService mInputManager;
