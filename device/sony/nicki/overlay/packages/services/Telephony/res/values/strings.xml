@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     nicki (Sony Xperia M, MSM8227) has no LTE modem: the modem's RadioAccessFamily
+     mask reports GSM/UMTS/HSPA(+) only, so the framework silently filters any LTE
+     preference down to nothing (setPreferredNetworkType logs filteredType=0). The
+     stock Telephony "Preferred network type" picker still lists a "4G" (LTE) entry
+     because it's driven by config flags, not the modem capability -- a dead option.
+
+     Override the picker arrays to drop the LTE row (value "9"), leaving 3G (value
+     "0", GSM/WCDMA-preferred) and 2G (value "1", GSM-only). Surgical: touches only
+     this list, no behavioural side effects (config_enabled_lte stays default).
+-->
+<resources translatable="false">
+    <string-array name="enabled_networks_choices" translatable="false">
+        <item>@string/network_3G</item>
+        <item>@string/network_2G</item>
+    </string-array>
+    <string-array name="enabled_networks_values" translatable="false">
+        <item>"0"</item>
+        <item>"1"</item>
+    </string-array>
+</resources>
