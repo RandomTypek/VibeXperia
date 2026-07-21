@@ -1,3 +1,23 @@
+// Legacy power_module loaded by the android.hardware.power@1.0 passthrough to
+// implement LineageOS performance-profile switching (cpufreq-direct), replacing
+// the generic no-op power.default.so. Named power.msm8960 (not power.qcom --
+// that name is already taken by device/qcom/common/power, which builds but
+// doesn't install its stock perfd-based HAL): hw_get_module() tries power.qcom.so
+// (ro.hardware/ro.product.board) first, misses (not installed), then loads
+// power.msm8960.so via the ro.board.platform=msm8960 variant. Installs to
+// /system/lib/hw, which hw_get_module() searches.
+cc_library_shared {
+    name: "power.msm8960",
+    relative_install_path: "hw",
+    srcs: ["power-nicki.c"],
+    header_libs: ["libhardware_headers"],
+    shared_libs: [
+        "liblog",
+        "libcutils",
+    ],
+    cflags: ["-Wall", "-Werror"],
+}
+
 cc_binary {
     name: "vendor.lineage.power@1.0-service.nicki",
     init_rc: ["vendor.lineage.power@1.0-service.nicki.rc"],
