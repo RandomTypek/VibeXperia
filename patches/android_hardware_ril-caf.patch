@@ -35,3 +35,21 @@ index 2e57bb5..3d075e8 100644
              convertRilDataCallToHal((RIL_Data_Call_Response_v6 *) response, result);
          }
  
+diff --git a/rild/rild.legacy.rc b/rild/rild.legacy.rc
+index b27e1da..64fd2a6 100644
+--- a/rild/rild.legacy.rc
++++ b/rild/rild.legacy.rc
+@@ -2,4 +2,12 @@ service ril-daemon /vendor/bin/hw/rild
+     class main
+     user radio
+     group radio cache inet misc audio log readproc wakelock
+-    capabilities BLOCK_SUSPEND NET_ADMIN NET_RAW
++    # nicki (msm8x27, kernel 3.4): CAP_BLOCK_SUSPEND (cap 36) does not exist on
++    # this kernel (CAP_LAST_CAP == CAP_WAKE_ALARM == 35). init raises the ambient
++    # capability set one cap at a time and aborts on the first that fails, so the
++    # invalid BLOCK_SUSPEND made the whole line a no-op -> rild ran with CapEff=0,
++    # no CAP_NET_ADMIN -> libdsi_netctrl's generic-netlink multicast bind to the
++    # netmgr group failed -> dsi_init never completed -> qcril "unable to get dsi
++    # hndl" -> mobile data never came up. Dropping BLOCK_SUSPEND lets the valid
++    # caps reach rild via the ambient backport (same path WiFi HAL/netmgrd use).
++    capabilities NET_ADMIN NET_RAW

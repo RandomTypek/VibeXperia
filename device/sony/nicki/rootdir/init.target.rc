@@ -81,6 +81,16 @@ on boot
     write /proc/sys/vm/dirty_expire_centisecs 300
     write /proc/sys/vm/dirty_writeback_centisecs 300
 
+    # Modem subsystem restart policy. The blob/board default is RESET_SOC (1):
+    # ANY modem crash panics the whole SoC and reboots the phone. Voice/SMS never
+    # exercised the modem's BAM-DMUX data path, but once mobile data works a
+    # BAM-DMUX timeout ("modem timeout: BAM DMUX disabled for SSR") escalates to
+    # "Resetting the SoC - modem crashed" ~99s into boot -> looks like a boot crash.
+    # RESET_SUBSYS_INDEPENDENT (3, the kernel's own original default) restarts just
+    # the modem subsystem instead, so a modem hiccup drops data/voice briefly and
+    # recovers rather than taking the whole device down.
+    write /sys/module/subsystem_restart/parameters/restart_level 3
+
     chown system system /sys/class/led/fih_led/control
     chown system system /sys/class/led/fih_led/info
     chmod 0600 /sys/class/led/fih_led/control

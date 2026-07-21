@@ -28,7 +28,7 @@ complete) 15.1 port.
 | Hardware video decode (H.264 — local files + browser) | ✅ |
 | NFC (chip enables, HCI init OK; tag R/W untested) | ✅ |
 | Telephony / RIL — voice, SMS, registration (insert a SIM) | ✅ |
-| Mobile data (cellular) | ⚠️ in progress — netmgrd crash + libril parse fixed; blocked in `dsi_netctrl` link‑map (see below) |
+| Mobile data (cellular) | ✅ (insert a SIM) — connects, validates, real throughput |
 | Bluetooth (enable, scan, real Sony BD_ADDR) | ✅ |
 | Performance tuning (zram/swappiness, low‑RAM) | ✅ |
 | **Camera** | ⚠️ enumerate + open + **live preview** work; **photo save hangs** (blob JPEG‑encode deadlock) |
@@ -85,24 +85,37 @@ Composer 2.1). The 16.0‑specific bring‑up:
   `ril_service_name` (removed in `vendor/`); also `O_TMPFILE` + legacy
   `/dev/android_adb` adbd + recovery‑wipe + audio kernel‑header fixes.
 
-- **Mobile data (in progress)** — voice/SMS/registration work, but PDP activation
-  never succeeded on any nicki LineageOS build. Root‑caused with an on‑device
-  `strace` of the (diag‑only‑logging) QMI data stack:
-  1. `libril` (`ril_service.cpp`) rejected the qcril's 45‑byte
-     `SetupDataCallResult` (a `v11` struct + 1 trailing byte) via a strict
-     `responseLen % sizeof(...) == 0` check → `INVALID_RESPONSE` → framework marks
-     "all APNs permanently failed" and never retries. Relaxed to `>= sizeof(vN)`.
-     See `patches/android_hardware_ril-caf.patch`.
-  2. `netmgrd` **SIGABRTs at boot**: its compiled‑in physical‑link list includes an
-     SDIO transport (`rmnet_sdio0`) that this BAM‑only target (`CONFIG_MSM_RMNET_BAM=y`,
-     no rmnet_sdio) never creates → `netmgr_kif_reset_link: cannot init iface[8]` →
-     crash‑loop → `dsi_init` never gets the netmgr‑ready handshake →
-     `dsi_get_data_srvc_hndl()` returns NULL → every PDP fails. A boot‑time oneshot
-     (`init.nicki.rmnet_stub.sh`, `product/data.mk`) creates harmless dummy
-     `rmnet_sdio0..7` before netmgrd so it stays up and the handshake completes.
-  3. **Remaining blocker**: even with netmgrd healthy and the handshake done,
-     `dsi_get_data_srvc_hndl` still returns NULL — the dsi link‑map for the real
-     BAM `rmnet0..7` links isn't populated. Under investigation.
+- **Mobile data (cellular)** — PDP activation never succeeded on any nicki
+  LineageOS build; voice/SMS/registration always worked. Root‑caused with an
+  on‑device `strace` of the (diag‑only‑logging) QMI data stack. Three fixes:
+  1. **`CAP_NET_ADMIN` never reached `rild`** — the real blocker. qcril logged
+     `unable to get dsi hndl` because `libdsi_netctrl`'s generic‑netlink multicast
+     bind to the netmgr group needs `CAP_NET_ADMIN`, and `rild` was running with
+     `CapEff: 0`. LineageOS's `rild.legacy.rc` grants caps via init's *ambient*
+     set, but its stock line lists `CAP_BLOCK_SUSPEND` (cap 36), which doesn't
+     exist on this **3.4 kernel** (`CAP_LAST_CAP == CAP_WAKE_ALARM == 35`). init
+     raises ambient caps one at a time and **aborts on the first invalid one**, so
+     the whole line no‑op'd and rild got zero caps. Dropping `BLOCK_SUSPEND` lets
+     `NET_ADMIN`/`NET_RAW` through via the ambient backport (the same path the WiFi
+     HAL and netmgrd already use). See `patches/android_hardware_ril-caf.patch`.
+  2. `netmgrd` **SIGABRTs at boot**: its compiled‑in physical‑link table is
+     `rmnet0..7` (real BAM links) then `rmnet_sdio0..7`, an SDIO transport this
+     BAM‑only target (`CONFIG_MSM_RMNET_BAM=y`) never creates →
+     `netmgr_kif_reset_link: cannot init iface[8]` (ENODEV) → crash‑loop →
+     `dsi_init` never gets the netmgr‑ready handshake. Fixed by pinning
+     `persist.data_netmgrd_nint=8` (`product/data.mk`) so netmgrd manages exactly
+     the 8 BAM links and never touches the phantom sdio ones.
+  3. `libril` (`ril_service.cpp`) rejected the qcril's 45‑byte `SetupDataCallResult`
+     (a `v11` struct + 1 trailing byte) via a strict `responseLen % sizeof(...) == 0`
+     check → `INVALID_RESPONSE` → "all APNs permanently failed". Relaxed to
+     `>= sizeof(vN)` so the success response parses. Same ril‑caf patch.
+
+- **Modem subsystem restart** — once data exercises the modem's BAM‑DMUX path (voice/
+  SMS never did), an occasional `modem timeout: BAM DMUX disabled for SSR` used to
+  escalate to a full **`RESET_SOC` kernel panic** (`restart_level = 1`) ~99 s into
+  boot — looked like a random boot crash. `init.target.rc` now sets
+  `restart_level = 3` (`RESET_SUBSYS_INDEPENDENT`, the kernel's own original
+  default) so a modem hiccup restarts just the modem instead of rebooting the SoC.
 
 Full blow‑by‑blow in [`16.0-BUILD-NOTES.md`](16.0-BUILD-NOTES.md).
 
