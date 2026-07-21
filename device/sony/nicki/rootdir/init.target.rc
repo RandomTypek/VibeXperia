@@ -61,8 +61,7 @@ on post-fs
     mkdir /dev/socket/suntory 0755 system system
 
 on boot
-   # qcamerasvr intentionally NOT started -- see the disabled service below
-   # (camera daemon NULL-derefs the kernel VFE driver -> random SoC panic).
+   start qcamerasvr
 
     # nicki performance tuning (MSM8227, dual Cortex-A5, ~880 MB RAM + lz4 zRAM):
     # swappiness 100 -- lean hard on the cheap lz4 zRAM so more file-backed pages
@@ -297,16 +296,14 @@ service sensord /system/bin/sensord
     oneshot
 
 #start camera server as daemon
-# Camera is not yet brought up on 16.0. mm-qcamera-daemon crash-loops, and worse,
-# one of its ioctls hits a NULL-deref in the kernel VFE driver
-# (msm_axi_subdev_init -> "Kernel panic - not syncing: Fatal exception") that
-# takes the whole SoC down -> random reboots. Keep it 'disabled' until camera is
-# ported; re-enable (drop 'disabled' + restore 'start qcamerasvr' in on boot) then.
+# Camera daemon. The kernel VFE NULL-deref that used to panic the SoC from here
+# (msm_axi_subdev_init) is fixed in-kernel (defensive NULL-check -> -EINVAL), so
+# this is safe to run at boot again. Enumerate + open + live preview work;
+# photo-capture JPEG-save is the remaining bring-up item.
 service qcamerasvr /system/bin/mm-qcamera-daemon
         class late_start
         user camera
         group camera system inet input graphics net_bt_stack
-        disabled
 
 service thermald /system/bin/thermald
    class main
