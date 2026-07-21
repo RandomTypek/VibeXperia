@@ -4,7 +4,7 @@
      mask reports GSM/UMTS/HSPA(+) only, so the framework silently filters any LTE
      preference down to nothing (setPreferredNetworkType logs filteredType=0). The
      stock Telephony "Preferred network type" picker still lists a "4G" (LTE) entry
-     because it's driven by config flags, not the modem capability -- a dead option.
+     because it's driven by config flags, not the modem capability; a dead option.
 
      Override the picker arrays to drop the LTE row (value "9"), leaving 3G (value
      "0", GSM/WCDMA-preferred) and 2G (value "1", GSM-only). Surgical: touches only
